@@ -1,4 +1,3 @@
-@'
 {
   "name": "nerv-telegram-bot",
   "version": "1.0.0",
@@ -7,6 +6,8 @@
   "scripts": {
     "start": "node api/webhook.js"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "engines": {
+    "node": "18.x"
+  }
 }
-'@ | Out-File -FilePath package.json -Encoding utf8
