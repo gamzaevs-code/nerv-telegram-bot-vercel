@@ -1,9 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Хранилище ожидающих email (в памяти)
-const waitingForEmail = new Map();
-
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(200).send('OK');
 
@@ -96,7 +93,7 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
-    // /link с email
+    // /link your@email.com
     if (text.startsWith('/link ')) {
       const email = text.replace('/link ', '').trim().toLowerCase();
       if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
@@ -116,33 +113,9 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
-    // /link без email — запрашиваем email
+    // /link без email — инструкция
     if (text === '/link') {
-      waitingForEmail.set(chatId, true);
-      await sendMessage('📧 *Введите ваш email:*\n\nНапример: `user@example.com`');
-      return res.status(200).send('OK');
-    }
-
-    // Обработка ввода email (если бот ждёт)
-    if (waitingForEmail.has(chatId)) {
-      waitingForEmail.delete(chatId);
-      const email = text.trim().toLowerCase();
-
-      if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
-        await sendMessage('❌ *Неверный формат email.*\n\nПопробуй ещё раз: `/link`');
-        return res.status(200).send('OK');
-      }
-
-      const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
-      if (!user) {
-        await sendMessage('❌ *Пользователь с таким email не найден.*\n\nПроверь email или зарегистрируйся на сайте.');
-        return res.status(200).send('OK');
-      }
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { telegramChatId: String(chatId) },
-      });
-      await sendMessage(`✅ *Аккаунт привязан!*\n\n👤 ${user.name}`);
+      await sendMessage('📧 *Для привязки аккаунта используй:*\n`/link your@email.com`\n\nПример: `/link test@mail.ru`');
       return res.status(200).send('OK');
     }
 
