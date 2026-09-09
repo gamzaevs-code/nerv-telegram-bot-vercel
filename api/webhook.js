@@ -96,26 +96,37 @@ module.exports = async (req, res) => {
     // /link your@email.com
     if (text.startsWith('/link ')) {
       const email = text.replace('/link ', '').trim().toLowerCase();
+
       if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
         await sendMessage('❌ *Неверный формат email.*\n\nПример: `/link test@mail.ru`');
         return res.status(200).send('OK');
       }
-      const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
+
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, name: true },
+      });
+
       if (!user) {
         await sendMessage('❌ *Пользователь с таким email не найден.*\n\nПроверь email или зарегистрируйся на сайте.');
         return res.status(200).send('OK');
       }
+
       await prisma.user.update({
         where: { id: user.id },
         data: { telegramChatId: String(chatId) },
       });
-      await sendMessage(`✅ *Аккаунт привязан!*\n\n👤 ${user.name}`);
+
+      await sendMessage(`✅ *Аккаунт привязан!*\n\n👤 ${user.name}\nТеперь используй /profile, чтобы посмотреть баланс.`);
       return res.status(200).send('OK');
     }
 
-    // /link без email — инструкция
+    // Если пользователь ввел /link без email
     if (text === '/link') {
-      await sendMessage('📧 *Для привязки аккаунта используй:*\n`/link your@email.com`\n\nПример: `/link test@mail.ru`');
+      await sendMessage(
+        '⚠️ *Укажи email:* `/link your@email.com`\n\n' +
+        'Пример: `/link test@mail.ru`'
+      );
       return res.status(200).send('OK');
     }
 
