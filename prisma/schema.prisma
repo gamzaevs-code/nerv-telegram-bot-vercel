@@ -1,0 +1,851 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  Int       @id @default(autoincrement())
+  email               String    @unique
+  name                String
+  passwordHash        String
+  role                String    @default("viewer")
+  balance             Int       @default(1000)
+  reputation          Int       @default(0)
+  completedTasksCount Int       @default(0)
+  failedTasksCount    Int       @default(0)
+  avatar              String?
+  bio                 String?
+  location            String?
+  isBanned            Boolean   @default(false)
+  level               Int       @default(1)
+  experience          Int       @default(0)
+  referralCode        String?   @unique
+  referredBy          Int?
+  theme               String    @default("dark")
+  telegramChatId      String?
+  telegramLinked      Boolean   @default(false)
+  lastDailyBonusAt    DateTime?
+  loginStreak         Int       @default(0)
+  isModerator         Boolean   @default(false)
+  emailVerified       DateTime?
+  verificationToken   String?   @unique
+  verificationTokenExpires DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  referrer               User?                     @relation("UserReferrals", fields: [referredBy], references: [id])
+  referrals              User[]                    @relation("UserReferrals")
+  createdTasks           Task[]                    @relation("CreatedTasks")
+  playingTasks           Task[]                    @relation("PlayerTasks")
+  votes                  Vote[]
+  sentMessages           Message[]                 @relation("SentMessages")
+  receivedMessages       Message[]                 @relation("ReceivedMessages")
+  notifications          Notification[]
+  transactions           Transaction[]
+  achievements           UserAchievement[]
+  reports                Report[]                  @relation("ReporterReports")
+  supportMessages        SupportMessage[]
+  tournamentEntries      TournamentParticipant[]
+  dailyQuests            UserDailyQuest[]
+  bets                   Bet[]
+  referralEarnings       ReferralEarning[]         @relation("ReferralEarningsUser")
+  earningsFrom           ReferralEarning[]         @relation("ReferralEarningsFromUser")
+  inviteCodes            InviteCode[]              @relation("InviteCreator")
+  challengeSubmissions   ChallengeSubmission[]
+  moderationLogs         ModeratorLog[]
+  aiModerationLogs       ModerationLog[]           @relation("ModerationLogUser")
+  reviewedModerationLogs ModerationLog[]           @relation("ModerationLogReviewer")
+  pushSubscriptions      PushSubscription[]
+  userChallenges         UserChallenge[]
+  questProgress          UserQuestProgress[]
+  coopParticipants       CoopQuestParticipant[]
+  liveStreams            LiveStream[]
+  liveStreamViews        LiveStreamViewer[]
+  apiKeys                ApiKey[]
+  userStats              UserStats?
+  ownedGuilds            Guild[]                   @relation("GuildOwner")
+  guildMemberships       GuildMember[]
+  guildInvitesReceived   GuildInvite[]             @relation("GuildInviteInvited")
+  guildInvitesSent       GuildInvite[]             @relation("GuildInviteInviter")
+  guildChatMessages      GuildChatMessage[]
+  cosmetics              UserCosmetic[]
+  shopTransactions       ShopTransaction[]
+  passwordResetTokens    PasswordResetToken[]
+  presence               UserPresence?
+  presenceSubscription   UserPresenceSubscription?
+  offeredTasksMade       Task[]                    @relation("OfferedTasksMade")
+  offeredTasksReceived   Task[]                    @relation("OfferedTasksReceived")
+  TwoFactor              TwoFactor?
+  Account                Account[]
+  Session                Session[]
+  ActivityLog            ActivityLog[]
+
+  @@index([role])
+  @@index([referredBy])
+}
+
+model Task {
+  id             Int       @id @default(autoincrement())
+  title          String
+  description    String?
+  reward         Int
+  status         String    @default("open")
+  videoUrl       String?
+  thumbnailUrl   String?
+  streamProvider String?
+  streamAssetId  String?
+  votingEndsAt   DateTime?
+  deadlineAt     DateTime?
+  offeredBy      Int?
+  offeredTo      Int?
+  offeredAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  creatorId      Int
+  creator        User             @relation("CreatedTasks", fields: [creatorId], references: [id])
+  playerId       Int?
+  player         User?            @relation("PlayerTasks", fields: [playerId], references: [id])
+  offerAuthor    User?            @relation("OfferedTasksMade", fields: [offeredBy], references: [id], onDelete: SetNull)
+  offerTarget    User?            @relation("OfferedTasksReceived", fields: [offeredTo], references: [id], onDelete: SetNull)
+  votes          Vote[]
+  bets           Bet[]
+  moderationLogs ModerationLog[]
+  questTemplates QuestChainTask[]
+
+  @@index([status])
+  @@index([reward])
+  @@index([createdAt])
+  @@index([offeredBy])
+  @@index([offeredTo])
+}
+
+model Vote {
+  id        Int      @id @default(autoincrement())
+  value     String
+  createdAt DateTime @default(now())
+
+  taskId  Int
+  task    Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  voterId Int
+  voter   User @relation(fields: [voterId], references: [id])
+
+  @@unique([taskId, voterId])
+}
+
+model Message {
+  id         Int      @id @default(autoincrement())
+  fromUserId Int
+  toUserId   Int
+  text       String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  fromUser User @relation("SentMessages", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("ReceivedMessages", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String
+  message   String
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model Transaction {
+  id                    Int      @id @default(autoincrement())
+  userId                Int
+  type                  String   @default("reward")
+  amount                Int
+  status                String   @default("completed")
+  reason                String   @default("transaction")
+  stripePaymentIntentId String?
+  createdAt             DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Achievement {
+  id            Int      @id @default(autoincrement())
+  name          String
+  description   String
+  icon          String
+  conditionType String   @unique
+  reward        Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  users UserAchievement[]
+}
+
+model UserAchievement {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  achievementId Int
+  unlockedAt    DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+}
+
+model Report {
+  id         Int       @id @default(autoincrement())
+  reporterId Int
+  targetType String
+  targetId   Int
+  reason     String
+  status     String    @default("pending")
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  reporter User @relation("ReporterReports", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([targetType, targetId])
+}
+
+model SupportMessage {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  message     String
+  isFromAdmin Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Tournament {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  prizePool   Int      @default(0)
+  status      String   @default("upcoming")
+  createdAt   DateTime @default(now())
+
+  participants TournamentParticipant[]
+}
+
+model TournamentParticipant {
+  id           Int  @id @default(autoincrement())
+  tournamentId Int
+  userId       Int
+  score        Int  @default(0)
+  rank         Int?
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@index([score])
+}
+
+model DailyQuest {
+  id               Int      @id @default(autoincrement())
+  description      String
+  reward           Int
+  requirementType  String
+  requirementValue Int
+  createdAt        DateTime @default(now())
+
+  users UserDailyQuest[]
+}
+
+model UserDailyQuest {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  questId   Int
+  progress  Int      @default(0)
+  completed Boolean  @default(false)
+  date      DateTime @default(now())
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quest DailyQuest @relation(fields: [questId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questId, date])
+}
+
+model Bet {
+  id            Int      @id @default(autoincrement())
+  taskId        Int
+  userId        Int
+  amount        Int
+  chosenOutcome String
+  status        String   @default("pending")
+  payout        Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+model InviteCode {
+  id        Int       @id @default(autoincrement())
+  code      String    @unique
+  createdBy Int
+  maxUses   Int       @default(1)
+  usedCount Int       @default(0)
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  creator User @relation("InviteCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+}
+
+model ReferralEarning {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  fromUserId Int
+  level      Int
+  amount     Int
+  createdAt  DateTime @default(now())
+
+  user     User @relation("ReferralEarningsUser", fields: [userId], references: [id], onDelete: Cascade)
+  fromUser User @relation("ReferralEarningsFromUser", fields: [fromUserId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Challenge {
+  id             Int      @id @default(autoincrement())
+  title          String
+  description    String?
+  requiredAction String?
+  reward         Int
+  difficulty     String   @default("easy")
+  imageUrl       String?
+  category       String   @default("daily")
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+
+  submissions ChallengeSubmission[]
+  users       UserChallenge[]
+}
+
+model ChallengeSubmission {
+  id          Int      @id @default(autoincrement())
+  challengeId Int
+  userId      Int
+  videoUrl    String?
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserChallenge {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  challengeId Int
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([challengeId])
+}
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ModeratorLog {
+  id          Int      @id @default(autoincrement())
+  moderatorId Int
+  action      String
+  targetId    Int
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  moderator User @relation(fields: [moderatorId], references: [id], onDelete: Cascade)
+
+  @@index([moderatorId])
+}
+
+model ModerationLog {
+  id          Int       @id @default(autoincrement())
+  taskId      Int?
+  userId      Int
+  contentType String
+  aiVerdict   String
+  finalStatus String    @default("PENDING")
+  reviewedBy  Int?
+  createdAt   DateTime  @default(now())
+  reviewedAt  DateTime?
+
+  task     Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  user     User  @relation("ModerationLogUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer User? @relation("ModerationLogReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([contentType])
+  @@index([finalStatus])
+  @@index([createdAt])
+}
+
+model QuestChain {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  rewardBonus Int      @default(100)
+  isDaily     Boolean  @default(false)
+  isCoop      Boolean  @default(false)
+  minPlayers  Int      @default(1)
+  createdAt   DateTime @default(now())
+
+  tasks        QuestChainTask[]
+  progress     UserQuestProgress[]
+  coopSessions CoopQuestSession[]
+
+  @@index([isDaily])
+  @@index([isCoop])
+  @@index([createdAt])
+}
+
+model QuestChainTask {
+  id             Int     @id @default(autoincrement())
+  chainId        Int
+  taskTemplateId Int?
+  stepOrder      Int
+  rewardPerTask  Int     @default(25)
+  title          String  @default("Шаг цепочки")
+  description    String?
+  actionType     String  @default("manual")
+
+  chain        QuestChain @relation(fields: [chainId], references: [id], onDelete: Cascade)
+  taskTemplate Task?      @relation(fields: [taskTemplateId], references: [id], onDelete: SetNull)
+
+  @@unique([chainId, stepOrder])
+  @@index([chainId])
+}
+
+model UserQuestProgress {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  chainId     Int
+  currentStep Int       @default(1)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  startedAt   DateTime  @default(now())
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chain QuestChain @relation(fields: [chainId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, chainId])
+  @@index([completed])
+}
+
+model CoopQuestSession {
+  id        Int      @id @default(autoincrement())
+  chainId   Int
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  status    String   @default("waiting")
+
+  chain        QuestChain             @relation(fields: [chainId], references: [id], onDelete: Cascade)
+  participants CoopQuestParticipant[]
+
+  @@index([status])
+  @@index([chainId])
+}
+
+model CoopQuestParticipant {
+  id        Int     @id @default(autoincrement())
+  sessionId Int
+  userId    Int
+  role      String
+  isReady   Boolean @default(false)
+
+  session CoopQuestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([role])
+}
+
+model LiveStream {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  streamKey   String    @unique
+  playbackUrl String?
+  isActive    Boolean   @default(true)
+  viewers     Int       @default(0)
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+
+  viewerSessions LiveStreamViewer[]
+
+  @@index([userId])
+  @@index([isActive])
+  @@index([startedAt])
+}
+
+model LiveStreamViewer {
+  id       Int      @id @default(autoincrement())
+  streamId Int
+  viewerId Int
+  joinedAt DateTime @default(now())
+
+  stream LiveStream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  viewer User       @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([streamId, viewerId])
+  @@index([viewerId])
+}
+
+model ApiKey {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  name        String
+  key         String    @unique
+  prefix      String
+  permissions String
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs ApiLog[]
+
+  @@index([userId])
+  @@index([prefix])
+}
+
+model ApiLog {
+  id         Int      @id @default(autoincrement())
+  apiKeyId   Int
+  endpoint   String
+  method     String
+  statusCode Int
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  @@index([apiKeyId])
+  @@index([createdAt])
+}
+
+model UserStats {
+  id                   Int      @id @default(autoincrement())
+  userId               Int      @unique
+  totalTasksCompleted  Int      @default(0)
+  totalTasksCreated    Int      @default(0)
+  totalVotesCast       Int      @default(0)
+  totalEarned          Int      @default(0)
+  totalSpent           Int      @default(0)
+  averageRewardPerTask Int      @default(0)
+  winRate              Int      @default(0)
+  weeklyActivity       String   @default("{}")
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Guild {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  avatar      String?
+  level       Int      @default(1)
+  experience  Int      @default(0)
+  balance     Int      @default(0)
+  ownerId     Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner             User                         @relation("GuildOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members           GuildMember[]
+  invites           GuildInvite[]
+  chatMessages      GuildChatMessage[]
+  tournamentWins    GuildTournament[]            @relation("WinningGuild")
+  tournamentEntries GuildTournamentParticipant[]
+
+  @@index([level])
+  @@index([experience])
+  @@index([ownerId])
+}
+
+model GuildMember {
+  id           Int      @id @default(autoincrement())
+  guildId      Int
+  userId       Int
+  role         String   @default("member")
+  joinedAt     DateTime @default(now())
+  contribution Int      @default(0)
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@index([userId])
+  @@index([role])
+}
+
+model GuildInvite {
+  id            Int      @id @default(autoincrement())
+  guildId       Int
+  invitedUserId Int
+  inviterId     Int
+  status        String   @default("pending")
+  createdAt     DateTime @default(now())
+
+  guild       Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  invitedUser User  @relation("GuildInviteInvited", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  inviter     User  @relation("GuildInviteInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([guildId])
+  @@index([invitedUserId])
+  @@index([status])
+}
+
+model GuildTournament {
+  id             Int      @id @default(autoincrement())
+  name           String
+  description    String?
+  prizePool      Int      @default(0)
+  startDate      DateTime
+  endDate        DateTime
+  status         String   @default("upcoming")
+  winningGuildId Int?
+
+  winningGuild Guild?                       @relation("WinningGuild", fields: [winningGuildId], references: [id], onDelete: SetNull)
+  participants GuildTournamentParticipant[]
+
+  @@index([status])
+  @@index([startDate])
+}
+
+model GuildTournamentParticipant {
+  id           Int  @id @default(autoincrement())
+  tournamentId Int
+  guildId      Int
+  score        Int  @default(0)
+  rank         Int?
+
+  tournament GuildTournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  guild      Guild           @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, guildId])
+  @@index([score])
+}
+
+model GuildChatMessage {
+  id        Int      @id @default(autoincrement())
+  guildId   Int
+  userId    Int
+  message   String
+  createdAt DateTime @default(now())
+
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, createdAt])
+}
+
+model CosmeticItem {
+  id             Int       @id @default(autoincrement())
+  name           String
+  description    String?
+  type           String
+  price          Int
+  imageUrl       String?
+  previewUrl     String?
+  isLimited      Boolean   @default(false)
+  availableUntil DateTime?
+  createdAt      DateTime  @default(now())
+
+  owners       UserCosmetic[]
+  transactions ShopTransaction[]
+
+  @@index([type])
+  @@index([isLimited])
+}
+
+model UserCosmetic {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  itemId      Int
+  equipped    Boolean  @default(false)
+  purchasedAt DateTime @default(now())
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item CosmeticItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+  @@index([userId])
+  @@index([equipped])
+}
+
+model ShopTransaction {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  itemId      Int
+  amountPaid  Int
+  purchasedAt DateTime @default(now())
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item CosmeticItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([itemId])
+}
+
+model Translation {
+  id        Int      @id @default(autoincrement())
+  locale    String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@unique([locale, key])
+}
+
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  userId    Int
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model UserPresence {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isOnline  Boolean  @default(false)
+  lastSeen  DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([isOnline])
+  @@index([lastSeen])
+}
+
+model UserPresenceSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled])
+}
+
+model TwoFactor {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secret      String
+  isEnabled   Boolean  @default(false)
+  backupCodes String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            Int
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       Int
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  details   Json
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
