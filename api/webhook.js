@@ -1,17 +1,15 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Хранилище для диалогов (в памяти, для serverless лучше заменить на Redis, но для начала так)
 const userState = {};
 
 module.exports = async (req, res) => {
-  // Только POST-запросы
   if (req.method !== 'POST') return res.status(200).send('OK');
 
   try {
     const { message, callback_query } = req.body;
 
-    // ---------- ОБРАБОТКА НАЖАТИЙ КНОПОК ----------
+    // ---------- ОБРАБОТКА КНОПОК ----------
     if (callback_query) {
       const chatId = callback_query.message.chat.id;
       const data = callback_query.data;
@@ -36,40 +34,12 @@ module.exports = async (req, res) => {
         try {
           return await prisma.user.findFirst({
             where: { telegramChatId: String(chatId) },
-            select: { id: true, name: true, balance: true, reputation: true, role: true, consentGiven: true },
+            select: { id: true, name: true, balance: true, reputation: true, role: true },
           });
         } catch {
           return null;
         }
       };
-
-      // ---- Согласие ----
-      if (data === 'accept_consent') {
-        const user = await prisma.user.findFirst({
-          where: { telegramChatId: String(chatId) },
-          select: { id: true },
-        });
-        if (user) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { consentGiven: true, consentDate: new Date() },
-          });
-        }
-        await edit(
-          '🤖 *Главное меню*\nВыберите действие:',
-          'Markdown',
-          {
-            inline_keyboard: [
-              [{ text: '📊 Профиль', callback_data: 'profile' }],
-              [{ text: '📋 Задания', callback_data: 'tasks' }],
-              [{ text: '💰 Кошелёк', callback_data: 'wallet' }],
-              [{ text: '➕ Создать задание', callback_data: 'create' }],
-              [{ text: '❓ Помощь', callback_data: 'help' }],
-            ],
-          }
-        );
-        return res.status(200).send('OK');
-      }
 
       // ---- Меню ----
       if (data === 'menu') {
@@ -175,7 +145,7 @@ module.exports = async (req, res) => {
       // ---- Помощь ----
       if (data === 'help') {
         await edit(
-          '📖 *Помощь*\n\n/start — Меню\n/link email — Привязать\n/create — Создать задание\n/delete_data — Удалить мои данные\n/privacy — Политика конфиденциальности\n/help — Помощь',
+          '📖 *Помощь*\n\n/start — Меню\n/link email — Привязать\n/create — Создать задание\n/delete_data — Удалить мои данные\n/help — Помощь',
           'Markdown',
           { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
         );
@@ -185,7 +155,7 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
-    // ---------- ОБЫЧНЫЕ ТЕКСТОВЫЕ СООБЩЕНИЯ ----------
+    // ---------- ОБЫЧНЫЕ СООБЩЕНИЯ ----------
     const chatId = message.chat.id;
     const text = message.text || '';
     const token = process.env.BOT_TOKEN;
@@ -203,52 +173,17 @@ module.exports = async (req, res) => {
       try {
         return await prisma.user.findFirst({
           where: { telegramChatId: String(chatId) },
-          select: { id: true, name: true, balance: true, reputation: true, role: true, consentGiven: true },
+          select: { id: true, name: true, balance: true, reputation: true, role: true },
         });
       } catch {
         return null;
       }
     };
 
-    // ---- /start (с проверкой согласия) ----
-    if (text === '/start') {
-      const user = await getUser();
-      if (!user || !user.consentGiven) {
-        await send(
-          '📜 *Политика конфиденциальности*\n\n' +
-          'Продолжая использовать бота, вы даёте согласие на обработку персональных данных в соответствии с Федеральным законом № 152-ФЗ.\n\n' +
-          '👉 [Полный текст политики](https://nerv.vercel.app/privacy)\n\n' +
-          'Вы можете в любой момент отозвать согласие командой /delete_data.',
-          'Markdown',
-          {
-            inline_keyboard: [
-              [{ text: '✅ Принимаю', callback_data: 'accept_consent' }],
-              [{ text: '❌ Не принимаю (бот не будет работать)', callback_data: 'menu' }],
-            ],
-          }
-        );
-        return res.status(200).send('OK');
-      }
+    // ---- /start (без проверки согласия) ----
+    if (text === '/start' || text === '/menu') {
       await send(
         '🤖 *Добро пожаловать в НЕРВ Бот!*\n\nВыберите действие:',
-        'Markdown',
-        {
-          inline_keyboard: [
-            [{ text: '📊 Профиль', callback_data: 'profile' }],
-            [{ text: '📋 Задания', callback_data: 'tasks' }],
-            [{ text: '💰 Кошелёк', callback_data: 'wallet' }],
-            [{ text: '➕ Создать задание', callback_data: 'create' }],
-            [{ text: '❓ Помощь', callback_data: 'help' }],
-          ],
-        }
-      );
-      return res.status(200).send('OK');
-    }
-
-    // ---- /menu ----
-    if (text === '/menu') {
-      await send(
-        '🤖 *Главное меню*',
         'Markdown',
         {
           inline_keyboard: [
@@ -343,17 +278,7 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
-    // ---- /privacy ----
-    if (text === '/privacy') {
-      await send(
-        '📜 *Политика конфиденциальности*\n\n' +
-        'Полный текст: [https://nerv.vercel.app/privacy](https://nerv.vercel.app/privacy)\n\n' +
-        'Кратко: мы собираем ваш Telegram ID и email. Данные используются для работы бота. Подробнее по ссылке.'
-      );
-      return res.status(200).send('OK');
-    }
-
-    // ---- /delete_data ----
+    // ---- /delete_data (удаляет telegramChatId) ----
     if (text === '/delete_data') {
       try {
         const user = await prisma.user.findFirst({
@@ -366,12 +291,12 @@ module.exports = async (req, res) => {
         }
         await prisma.user.update({
           where: { id: user.id },
-          data: { telegramChatId: null, consentGiven: false, consentDate: null },
+          data: { telegramChatId: null },
         });
-        await send('✅ *Ваши данные удалены.*');
+        await send('✅ *Вы отвязаны от бота.*');
         return res.status(200).send('OK');
       } catch {
-        await send('❌ *Ошибка удаления*');
+        await send('❌ *Ошибка*');
         return res.status(200).send('OK');
       }
     }
