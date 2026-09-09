@@ -34,10 +34,7 @@ model User {
   emailVerified       DateTime?
   verificationToken   String?   @unique
   verificationTokenExpires DateTime?
-  // 👇 НОВЫЕ ПОЛЯ ДЛЯ ПОЛИТИКИ КОНФИДЕНЦИАЛЬНОСТИ
-  consentGiven        Boolean   @default(false)
-  consentDate         DateTime?
-  // 👆
+  displayName         String?   // для отображения в соцфункциях
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -152,11 +149,10 @@ model Message {
   fromUser User @relation("SentMessages", fields: [fromUserId], references: [id], onDelete: Cascade)
   toUser   User @relation("ReceivedMessages", fields: [toUserId], references: [id], onDelete: Cascade)
 
+  @@index([toUserId, isRead])
   @@index([fromUserId])
-  @@index([toUserId])
   @@index([createdAt])
 }
-
 model Notification {
   id        Int      @id @default(autoincrement())
   userId    Int

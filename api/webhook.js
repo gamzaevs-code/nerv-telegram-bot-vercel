@@ -1,10 +1,10 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Хранилище для диалогов (создание задания)
+// Временное хранилище для диалогов (создание задания)
 const userState = {};
 
-// Универсальная функция отправки сообщений
+// Универсальная функция отправки сообщений в Telegram
 async function sendTelegramMessage(chatId, text, token, parse_mode = 'Markdown', reply_markup = null) {
   const payload = { chat_id: chatId, text, parse_mode };
   if (reply_markup) payload.reply_markup = reply_markup;
@@ -23,12 +23,38 @@ module.exports = async (req, res) => {
     const token = process.env.BOT_TOKEN;
     if (!token) return res.status(500).send('No token');
 
+    // ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
+    const getUser = async (chatId) => {
+      try {
+        return await prisma.user.findFirst({
+          where: { telegramChatId: String(chatId) },
+          select: {
+            id: true, name: true, displayName: true, balance: true, reputation: true, role: true,
+            referralCode: true, loginStreak: true, lastDailyBonusAt: true,
+          },
+        });
+      } catch {
+        return null;
+      }
+    };
+
+    const getUserById = async (userId) => {
+      try {
+        return await prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, name: true, displayName: true, balance: true, reputation: true, role: true },
+        });
+      } catch {
+        return null;
+      }
+    };
+
     // ---------- ОБРАБОТКА НАЖАТИЙ КНОПОК ----------
     if (callback_query) {
       const chatId = callback_query.message.chat.id;
       const data = callback_query.data;
 
-      const editMessage = async (text, parse_mode = 'Markdown', reply_markup = null) => {
+      const edit = async (text, parse_mode = 'Markdown', reply_markup = null) => {
         await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -42,25 +68,15 @@ module.exports = async (req, res) => {
         });
       };
 
-      const getUser = async () => {
-        try {
-          return await prisma.user.findFirst({
-            where: { telegramChatId: String(chatId) },
-            select: { id: true, name: true, balance: true, reputation: true, role: true, referralCode: true },
-          });
-        } catch {
-          return null;
-        }
-      };
+      const user = await getUser(chatId);
 
       // ---------- АДМИН-ПАНЕЛЬ ----------
       if (data === 'admin_panel') {
-        const user = await getUser();
         if (!user || user.role !== 'admin') {
-          await editMessage('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
-        await editMessage(
+        await edit(
           '⚙️ *Админ-панель*\n\nВыберите действие:',
           'Markdown',
           {
@@ -76,9 +92,8 @@ module.exports = async (req, res) => {
       }
 
       if (data === 'admin_users') {
-        const user = await getUser();
         if (!user || user.role !== 'admin') {
-          await editMessage('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         try {
@@ -91,18 +106,17 @@ module.exports = async (req, res) => {
           users.forEach((u) => {
             text += `🆔 ${u.id} | ${u.name} (${u.email})\n   Роль: ${u.role}, Баланс: ${u.balance}₽, Репутация: ${u.reputation}\n\n`;
           });
-          await editMessage(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
+          await edit('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
           return res.status(200).send('OK');
         }
       }
 
       if (data === 'admin_tasks') {
-        const user = await getUser();
         if (!user || user.role !== 'admin') {
-          await editMessage('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         try {
@@ -117,18 +131,17 @@ module.exports = async (req, res) => {
             if (t.player) text += `   Игрок: ${t.player.name}\n`;
             text += '\n';
           });
-          await editMessage(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
+          await edit('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
           return res.status(200).send('OK');
         }
       }
 
       if (data === 'admin_stats') {
-        const user = await getUser();
         if (!user || user.role !== 'admin') {
-          await editMessage('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         try {
@@ -144,17 +157,16 @@ module.exports = async (req, res) => {
             `🗳️ Всего голосов: ${totalVotes}\n` +
             `💳 Всего транзакций: ${totalTransactions}\n` +
             `💰 Общий баланс: ${totalBalance._sum.balance || 0} ₽`;
-          await editMessage(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
           return res.status(200).send('OK');
         }
       }
 
       // ---------- МЕНЮ ----------
       if (data === 'menu') {
-        const user = await getUser();
         const isAdmin = user && user.role === 'admin';
         const keyboard = [
           [{ text: '📊 Профиль', callback_data: 'profile' }],
@@ -162,32 +174,27 @@ module.exports = async (req, res) => {
           [{ text: '💰 Кошелёк', callback_data: 'wallet' }],
           [{ text: '➕ Создать задание', callback_data: 'create' }],
           [{ text: '🏆 Рейтинг', callback_data: 'leaderboard' }],
-          [{ text: '🎁 Ежедневный бонус', callback_data: 'daily' }],
-          [{ text: '🔗 Реферальная система', callback_data: 'referral' }],
+          [{ text: '🎁 Бонус', callback_data: 'daily' }],
+          [{ text: '🔗 Рефералы', callback_data: 'referral' }],
+          [{ text: '👥 Игроки', callback_data: 'players_menu' }],
+          [{ text: '💬 Сообщения', callback_data: 'inbox' }],
         ];
-        if (isAdmin) {
-          keyboard.push([{ text: '⚙️ Админ-панель', callback_data: 'admin_panel' }]);
-        }
+        if (isAdmin) keyboard.push([{ text: '⚙️ Админ', callback_data: 'admin_panel' }]);
         keyboard.push([{ text: '❓ Помощь', callback_data: 'help' }]);
-        await editMessage(
-          '🤖 *Главное меню*\n\nВыберите действие:',
-          'Markdown',
-          { inline_keyboard: keyboard }
-        );
+        await edit('🤖 *Главное меню*', 'Markdown', { inline_keyboard: keyboard });
         return res.status(200).send('OK');
       }
 
-      // ---------- ПРОФИЛЬ ----------
+      // ---------- ПРОФИЛЬ (свой) ----------
       if (data === 'profile') {
-        const user = await getUser();
         if (!user) {
-          await editMessage('❌ *Ты не привязан.* Используй /link your@email.com', 'Markdown', {
+          await edit('❌ *Ты не привязан.* Используй /link your@email.com', 'Markdown', {
             inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
           });
           return res.status(200).send('OK');
         }
-        await editMessage(
-          `👤 *${user.name}*\n\n💰 Баланс: ${user.balance} ₽\n⭐ Репутация: ${user.reputation}\n🎮 Роль: ${user.role}`,
+        await edit(
+          `👤 *${user.displayName || user.name}*\n\n💰 Баланс: ${user.balance} ₽\n⭐ Репутация: ${user.reputation}\n🎮 Роль: ${user.role}`,
           'Markdown',
           { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
         );
@@ -204,13 +211,12 @@ module.exports = async (req, res) => {
             include: { creator: { select: { name: true } }, player: { select: { name: true } } },
           });
           if (tasks.length === 0) {
-            await editMessage('📭 *Нет доступных заданий.*', 'Markdown', {
+            await edit('📭 *Нет доступных заданий.*', 'Markdown', {
               inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
             });
             return res.status(200).send('OK');
           }
 
-          const user = await getUser();
           const isPlayer = user && user.role === 'player';
           const isAdmin = user && user.role === 'admin';
 
@@ -231,10 +237,10 @@ module.exports = async (req, res) => {
           });
           buttons.push([{ text: '🔙 Назад', callback_data: 'menu' }]);
 
-          await editMessage('📋 *Доступные задания:*', 'Markdown', { inline_keyboard: buttons });
+          await edit('📋 *Доступные задания:*', 'Markdown', { inline_keyboard: buttons });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
       }
@@ -243,7 +249,7 @@ module.exports = async (req, res) => {
       if (data.startsWith('task_')) {
         const taskId = parseInt(data.split('_')[1]);
         if (isNaN(taskId)) {
-          await editMessage('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
         try {
@@ -252,7 +258,7 @@ module.exports = async (req, res) => {
             include: { creator: { select: { name: true } }, player: { select: { name: true } } },
           });
           if (!task) {
-            await editMessage('❌ *Задание не найдено*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+            await edit('❌ *Задание не найдено*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
             return res.status(200).send('OK');
           }
           let text = `📌 *${task.title}*\n\n`;
@@ -262,7 +268,7 @@ module.exports = async (req, res) => {
           text += `📌 Статус: ${task.status}\n`;
           if (task.player) text += `🎮 Игрок: ${task.player.name}\n`;
           if (task.videoUrl) text += `🎬 Видео загружено\n`;
-          await editMessage(text, 'Markdown', {
+          await edit(text, 'Markdown', {
             inline_keyboard: [
               [{ text: '🔙 К списку', callback_data: 'tasks' }],
               [{ text: '🔙 В меню', callback_data: 'menu' }],
@@ -270,7 +276,7 @@ module.exports = async (req, res) => {
           });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
       }
@@ -279,16 +285,15 @@ module.exports = async (req, res) => {
       if (data.startsWith('take_')) {
         const taskId = parseInt(data.split('_')[1]);
         if (isNaN(taskId)) {
-          await editMessage('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
-        const user = await getUser();
         if (!user) {
-          await editMessage('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
         if (user.role !== 'player') {
-          await editMessage('❌ *Только игроки могут брать задания*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Только игроки могут брать задания*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
 
@@ -298,21 +303,21 @@ module.exports = async (req, res) => {
             data: { status: 'taken', playerId: user.id },
           });
           if (updated.count === 0) {
-            await editMessage('❌ *Задание уже взято*', 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] });
+            await edit('❌ *Задание уже взято*', 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] });
             return res.status(200).send('OK');
           }
           const task = await prisma.task.findUnique({ where: { id: taskId }, include: { creator: { select: { telegramChatId: true } } } });
-          await editMessage(
+          await edit(
             `✅ *Задание взято!*\n\n📌 ${task.title}\n💰 ${task.reward} ₽\n\nЗагрузи видео в этот чат.`,
             'Markdown',
             { inline_keyboard: [[{ text: '📋 Мои задания', callback_data: 'my_tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] }
           );
           if (task.creator.telegramChatId) {
-            await sendTelegramMessage(task.creator.telegramChatId, `🎯 *Задание взято!*\n\n📌 ${task.title}\n👤 Игрок: ${user.name}`, token);
+            await sendTelegramMessage(task.creator.telegramChatId, `🎯 *Задание взято!*\n\n📌 ${task.title}\n👤 Игрок: ${user.displayName || user.name}`, token);
           }
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
       }
@@ -322,9 +327,8 @@ module.exports = async (req, res) => {
         const parts = data.split('_');
         const taskId = parseInt(parts[1]);
         const value = parts[2];
-        const user = await getUser();
         if (!user) {
-          await editMessage('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
 
@@ -332,7 +336,7 @@ module.exports = async (req, res) => {
           where: { taskId_voterId: { taskId, voterId: user.id } },
         });
         if (existing) {
-          await editMessage('❌ *Ты уже голосовал*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Ты уже голосовал*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
 
@@ -353,7 +357,7 @@ module.exports = async (req, res) => {
           const approveCount = votes.find(v => v.value === 'approve')?._count || 0;
           const rejectCount = votes.find(v => v.value === 'reject')?._count || 0;
 
-          await editMessage(
+          await edit(
             `✅ *Голос принят!*\n\nЗа: ${approveCount}\nПротив: ${rejectCount}`,
             'Markdown',
             { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] }
@@ -388,16 +392,15 @@ module.exports = async (req, res) => {
           }
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка голосования*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          await edit('❌ *Ошибка голосования*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
           return res.status(200).send('OK');
         }
       }
 
       // ---------- МОИ ЗАДАНИЯ ----------
       if (data === 'my_tasks') {
-        const user = await getUser();
         if (!user) {
-          await editMessage('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         try {
@@ -407,26 +410,25 @@ module.exports = async (req, res) => {
             include: { creator: { select: { name: true } } },
           });
           if (tasks.length === 0) {
-            await editMessage('📭 *У тебя нет заданий.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+            await edit('📭 *У тебя нет заданий.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
             return res.status(200).send('OK');
           }
           let text = '📋 *Твои задания:*\n\n';
           tasks.forEach((t, i) => {
             text += `${i+1}. *${t.title}*\n   💰 ${t.reward} ₽\n   Статус: ${t.status}\n   👤 Создатель: ${t.creator.name}\n\n`;
           });
-          await editMessage(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
       }
 
       // ---------- КОШЕЛЁК ----------
       if (data === 'wallet') {
-        const user = await getUser();
         if (!user) {
-          await editMessage('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         try {
@@ -444,7 +446,7 @@ module.exports = async (req, res) => {
               text += `${t.createdAt.toLocaleDateString()} ${sign}${t.amount} ₽ — ${t.reason}\n`;
             });
           }
-          await editMessage(text, 'Markdown', {
+          await edit(text, 'Markdown', {
             inline_keyboard: [
               [{ text: '📈 Полная история', callback_data: 'transactions' }],
               [{ text: '🔙 Назад', callback_data: 'menu' }],
@@ -452,16 +454,15 @@ module.exports = async (req, res) => {
           });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
       }
 
       // ---------- ВСЕ ТРАНЗАКЦИИ ----------
       if (data === 'transactions') {
-        const user = await getUser();
         if (!user) {
-          await editMessage('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         try {
@@ -479,10 +480,10 @@ module.exports = async (req, res) => {
               text += `${t.createdAt.toLocaleDateString()} ${sign}${t.amount} ₽ — ${t.reason}\n`;
             });
           }
-          await editMessage(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'wallet' }]] });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'wallet' }]] });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'wallet' }]] });
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'wallet' }]] });
           return res.status(200).send('OK');
         }
       }
@@ -493,13 +494,14 @@ module.exports = async (req, res) => {
           const users = await prisma.user.findMany({
             orderBy: { reputation: 'desc' },
             take: 10,
-            select: { name: true, reputation: true, balance: true },
+            select: { name: true, displayName: true, reputation: true, balance: true },
           });
           let text = '🏆 *Топ по репутации:*\n\n';
           users.forEach((u, i) => {
-            text += `${i+1}. ${u.name} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`;
+            const display = u.displayName || u.name;
+            text += `${i+1}. ${display} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`;
           });
-          await editMessage(text, 'Markdown', {
+          await edit(text, 'Markdown', {
             inline_keyboard: [
               [{ text: '💰 По балансу', callback_data: 'leaderboard_balance' }],
               [{ text: '🔙 Назад', callback_data: 'menu' }],
@@ -507,7 +509,7 @@ module.exports = async (req, res) => {
           });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
       }
@@ -517,13 +519,14 @@ module.exports = async (req, res) => {
           const users = await prisma.user.findMany({
             orderBy: { balance: 'desc' },
             take: 10,
-            select: { name: true, reputation: true, balance: true },
+            select: { name: true, displayName: true, reputation: true, balance: true },
           });
           let text = '💰 *Топ по балансу:*\n\n';
           users.forEach((u, i) => {
-            text += `${i+1}. ${u.name} — 💰 ${u.balance}₽ (⭐ ${u.reputation})\n`;
+            const display = u.displayName || u.name;
+            text += `${i+1}. ${display} — 💰 ${u.balance}₽ (⭐ ${u.reputation})\n`;
           });
-          await editMessage(text, 'Markdown', {
+          await edit(text, 'Markdown', {
             inline_keyboard: [
               [{ text: '⭐ По репутации', callback_data: 'leaderboard' }],
               [{ text: '🔙 Назад', callback_data: 'menu' }],
@@ -531,16 +534,15 @@ module.exports = async (req, res) => {
           });
           return res.status(200).send('OK');
         } catch {
-          await editMessage('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
       }
 
       // ---------- ЕЖЕДНЕВНЫЙ БОНУС ----------
       if (data === 'daily') {
-        const user = await getUser();
         if (!user) {
-          await editMessage('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         const now = new Date();
@@ -548,7 +550,7 @@ module.exports = async (req, res) => {
         const hoursSince = lastBonus ? (now - lastBonus) / (1000 * 60 * 60) : 24;
         if (hoursSince < 24) {
           const hoursLeft = Math.ceil(24 - hoursSince);
-          await editMessage(`⏳ *Бонус уже получен.*\nСледующий через ${hoursLeft} ч.`, 'Markdown', {
+          await edit(`⏳ *Бонус уже получен.*\nСледующий через ${hoursLeft} ч.`, 'Markdown', {
             inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
           });
           return res.status(200).send('OK');
@@ -571,7 +573,7 @@ module.exports = async (req, res) => {
             reason: 'Ежедневный бонус',
           },
         });
-        await editMessage(`🎁 *Бонус получен!*\n+${bonus} ₽\nБаланс: ${user.balance + bonus} ₽`, 'Markdown', {
+        await edit(`🎁 *Бонус получен!*\n+${bonus} ₽\nБаланс: ${user.balance + bonus} ₽`, 'Markdown', {
           inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
         });
         return res.status(200).send('OK');
@@ -579,9 +581,8 @@ module.exports = async (req, res) => {
 
       // ---------- РЕФЕРАЛЬНАЯ СИСТЕМА ----------
       if (data === 'referral') {
-        const user = await getUser();
         if (!user) {
-          await editMessage('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         let referralCode = user.referralCode;
@@ -594,7 +595,7 @@ module.exports = async (req, res) => {
           referralCode = code;
         }
         const invited = await prisma.user.count({ where: { referredBy: user.id } });
-        await editMessage(
+        await edit(
           `🔗 *Реферальная система*\n\nВаш код: *${referralCode}*\n` +
           `Ссылка: [https://nerv.vercel.app/signup?ref=${referralCode}](https://nerv.vercel.app/signup?ref=${referralCode})\n\n` +
           `👥 Приглашено: ${invited}\n` +
@@ -605,28 +606,117 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
-      // ---------- СОЗДАТЬ ЗАДАНИЕ ----------
-      if (data === 'create') {
-        const user = await getUser();
-        if (!user) {
-          await editMessage('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-        userState[chatId] = { step: 'title' };
-        await editMessage(
-          '📝 *Создание задания*\n\nВведите *название*:',
+      // ---------- ПОИСК ИГРОКОВ (меню) ----------
+      if (data === 'players_menu') {
+        await edit(
+          '👥 *Поиск игроков*\n\nВведите имя или ник для поиска.\nНапример: `/search Сергей`',
           'Markdown',
-          { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'menu' }]] }
+          { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
         );
         return res.status(200).send('OK');
       }
 
+      // ---------- ПРОСМОТР ПРОФИЛЯ ДРУГОГО ИГРОКА (из поиска) ----------
+      if (data.startsWith('view_profile_')) {
+        const targetId = parseInt(data.split('_')[2]);
+        if (isNaN(targetId)) {
+          await edit('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        }
+        const target = await getUserById(targetId);
+        if (!target) {
+          await edit('❌ *Игрок не найден*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        }
+        let text = `👤 *${target.displayName || target.name}*\n\n`;
+        text += `⭐ Репутация: ${target.reputation}\n`;
+        text += `🎮 Роль: ${target.role}\n`;
+        text += `\n💬 Написать: /msg ${target.id} <текст>`;
+        await edit(text, 'Markdown', {
+          inline_keyboard: [
+            [{ text: '💬 Написать', callback_data: `msg_${target.id}` }],
+            [{ text: '🔙 Назад', callback_data: 'players_menu' }],
+          ],
+        });
+        return res.status(200).send('OK');
+      }
+
+      // ---------- ОТКРЫТЬ ЧАТ С ПОЛЬЗОВАТЕЛЕМ ----------
+      if (data.startsWith('msg_')) {
+        const targetId = parseInt(data.split('_')[1]);
+        if (isNaN(targetId)) {
+          await edit('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        }
+        const target = await getUserById(targetId);
+        if (!target) {
+          await edit('❌ *Игрок не найден*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        }
+        await edit(
+          `💬 *Чат с ${target.displayName || target.name}*\n\nНапишите сообщение, бот перешлёт его.\nИспользуйте:\n/msg ${target.id} <текст>`,
+          'Markdown',
+          { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'players_menu' }]] }
+        );
+        return res.status(200).send('OK');
+      }
+
+      // ---------- ВХОДЯЩИЕ СООБЩЕНИЯ ----------
+      if (data === 'inbox') {
+        if (!user) {
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        }
+        try {
+          const messages = await prisma.message.findMany({
+            where: { toUserId: user.id, isRead: false },
+            orderBy: { createdAt: 'desc' },
+            include: { fromUser: { select: { name: true, displayName: true } } },
+          });
+          if (messages.length === 0) {
+            await edit('📭 *Новых сообщений нет.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+            return res.status(200).send('OK');
+          }
+          let text = '💬 *Новые сообщения:*\n\n';
+          messages.forEach((msg) => {
+            const fromName = msg.fromUser.displayName || msg.fromUser.name;
+            text += `👤 ${fromName}: ${msg.text}\n`;
+            text += `   [Ответить](/msg ${msg.fromUserId} ...)\n\n`;
+          });
+          // Отмечаем прочитанными
+          await prisma.message.updateMany({
+            where: { toUserId: user.id, isRead: false },
+            data: { isRead: true },
+          });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        } catch {
+          await edit('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        }
+      }
+
       // ---------- ПОМОЩЬ ----------
       if (data === 'help') {
-        await editMessage(
-          '📖 *Помощь*\n\n/start — Главное меню\n/link email — Привязать аккаунт\n/profile — Профиль\n/tasks — Задания\n/wallet — Кошелёк\n/leaderboard — Рейтинг\n/daily — Бонус\n/referral — Рефералы\n/delete_data — Отвязать аккаунт\n/help — Помощь',
+        await edit(
+          '📖 *Помощь*\n\n/start — Главное меню\n/link email — Привязать аккаунт\n/profile — Мой профиль\n/tasks — Задания\n/wallet — Кошелёк\n/leaderboard — Рейтинг\n/daily — Бонус\n/referral — Рефералы\n/search <имя> — Поиск игроков\n/profile <id> — Профиль игрока\n/msg <id> <текст> — Отправить сообщение\n/inbox — Входящие\n/chat <id> — История переписки\n/delete_data — Отвязать аккаунт\n/help — Помощь',
           'Markdown',
           { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
+        );
+        return res.status(200).send('OK');
+      }
+
+      // ---------- СОЗДАТЬ ЗАДАНИЕ ----------
+      if (data === 'create') {
+        if (!user) {
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        }
+        userState[chatId] = { step: 'title' };
+        await edit(
+          '📝 *Создание задания*\n\nВведите *название*:',
+          'Markdown',
+          { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'menu' }]] }
         );
         return res.status(200).send('OK');
       }
@@ -684,20 +774,10 @@ module.exports = async (req, res) => {
       await sendTelegramMessage(chatId, msg, token, parse_mode, reply_markup);
     };
 
-    const getUser = async () => {
-      try {
-        return await prisma.user.findFirst({
-          where: { telegramChatId: String(chatId) },
-          select: { id: true, name: true, balance: true, reputation: true, role: true, referralCode: true, loginStreak: true, lastDailyBonusAt: true },
-        });
-      } catch {
-        return null;
-      }
-    };
+    const user = await getUser(chatId);
 
-    // ---- /start ----
+    // ---- /start /menu ----
     if (text === '/start' || text === '/menu') {
-      const user = await getUser();
       const isAdmin = user && user.role === 'admin';
       const keyboard = [
         [{ text: '📊 Профиль', callback_data: 'profile' }],
@@ -705,24 +785,19 @@ module.exports = async (req, res) => {
         [{ text: '💰 Кошелёк', callback_data: 'wallet' }],
         [{ text: '➕ Создать задание', callback_data: 'create' }],
         [{ text: '🏆 Рейтинг', callback_data: 'leaderboard' }],
-        [{ text: '🎁 Ежедневный бонус', callback_data: 'daily' }],
-        [{ text: '🔗 Реферальная система', callback_data: 'referral' }],
+        [{ text: '🎁 Бонус', callback_data: 'daily' }],
+        [{ text: '🔗 Рефералы', callback_data: 'referral' }],
+        [{ text: '👥 Игроки', callback_data: 'players_menu' }],
+        [{ text: '💬 Сообщения', callback_data: 'inbox' }],
       ];
-      if (isAdmin) {
-        keyboard.push([{ text: '⚙️ Админ-панель', callback_data: 'admin_panel' }]);
-      }
+      if (isAdmin) keyboard.push([{ text: '⚙️ Админ', callback_data: 'admin_panel' }]);
       keyboard.push([{ text: '❓ Помощь', callback_data: 'help' }]);
-      await send(
-        '🤖 *Добро пожаловать в НЕРВ Бот!*\n\nВыберите действие:',
-        'Markdown',
-        { inline_keyboard: keyboard }
-      );
+      await send('🤖 *Главное меню*', 'Markdown', { inline_keyboard: keyboard });
       return res.status(200).send('OK');
     }
 
-    // ---- /profile ----
+    // ---- /profile (свой) ----
     if (text === '/profile') {
-      const user = await getUser();
       if (!user) {
         await send('❌ *Ты не привязан.* Используй /link your@email.com', 'Markdown', {
           inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
@@ -730,7 +805,7 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
       await send(
-        `👤 *${user.name}*\n\n💰 ${user.balance} ₽\n⭐ ${user.reputation}\n🎮 ${user.role}`,
+        `👤 *${user.displayName || user.name}*\n\n💰 ${user.balance} ₽\n⭐ ${user.reputation}\n🎮 ${user.role}`,
         'Markdown',
         { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
       );
@@ -751,7 +826,6 @@ module.exports = async (req, res) => {
           return res.status(200).send('OK');
         }
 
-        const user = await getUser();
         const isPlayer = user && user.role === 'player';
         const isAdmin = user && user.role === 'admin';
 
@@ -811,9 +885,202 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /search ----
+    if (text.startsWith('/search ')) {
+      const query = text.replace('/search ', '').trim();
+      if (query.length < 2) {
+        await send('⚠️ *Введите минимум 2 символа для поиска.*');
+        return res.status(200).send('OK');
+      }
+      try {
+        const users = await prisma.user.findMany({
+          where: {
+            OR: [
+              { name: { contains: query, mode: 'insensitive' } },
+              { displayName: { contains: query, mode: 'insensitive' } },
+            ],
+          },
+          take: 10,
+          select: { id: true, name: true, displayName: true, reputation: true },
+        });
+        if (users.length === 0) {
+          await send('👥 *Никто не найден.*');
+          return res.status(200).send('OK');
+        }
+        let reply = '👥 *Результаты поиска:*\n\n';
+        users.forEach((u) => {
+          const display = u.displayName || u.name;
+          reply += `• ${display} (⭐ ${u.reputation})\n   /profile ${u.id} — просмотр\n   /msg ${u.id} — написать\n\n`;
+        });
+        await send(reply, 'Markdown');
+        return res.status(200).send('OK');
+      } catch {
+        await send('❌ *Ошибка поиска*');
+        return res.status(200).send('OK');
+      }
+    }
+
+    // ---- /profile <id> (чужой профиль) ----
+    if (text.startsWith('/profile ')) {
+      const targetId = parseInt(text.replace('/profile ', '').trim());
+      if (isNaN(targetId)) {
+        await send('❌ *Укажите корректный ID*');
+        return res.status(200).send('OK');
+      }
+      const target = await getUserById(targetId);
+      if (!target) {
+        await send('❌ *Игрок не найден*');
+        return res.status(200).send('OK');
+      }
+      let reply = `👤 *${target.displayName || target.name}*\n\n`;
+      reply += `⭐ Репутация: ${target.reputation}\n`;
+      reply += `🎮 Роль: ${target.role}\n`;
+      reply += `\n💬 Написать: /msg ${target.id} <текст>`;
+      await send(reply, 'Markdown');
+      return res.status(200).send('OK');
+    }
+
+    // ---- /msg <id> <текст> ----
+    if (text.startsWith('/msg ')) {
+      if (!user) {
+        await send('❌ *Сначала привяжи аккаунт*');
+        return res.status(200).send('OK');
+      }
+      const parts = text.split(' ');
+      if (parts.length < 3) {
+        await send('⚠️ *Формат:* `/msg <id> <сообщение>`');
+        return res.status(200).send('OK');
+      }
+      const targetId = parseInt(parts[1]);
+      if (isNaN(targetId)) {
+        await send('❌ *Некорректный ID*');
+        return res.status(200).send('OK');
+      }
+      const msgText = parts.slice(2).join(' ');
+      if (msgText.length < 1) {
+        await send('⚠️ *Сообщение не может быть пустым.*');
+        return res.status(200).send('OK');
+      }
+
+      const target = await getUserById(targetId);
+      if (!target) {
+        await send('❌ *Получатель не найден*');
+        return res.status(200).send('OK');
+      }
+      if (target.id === user.id) {
+        await send('❌ *Нельзя отправить сообщение самому себе*');
+        return res.status(200).send('OK');
+      }
+
+      try {
+        await prisma.message.create({
+          data: {
+            fromUserId: user.id,
+            toUserId: target.id,
+            text: msgText,
+          },
+        });
+
+        if (target.telegramChatId) {
+          const fromName = user.displayName || user.name;
+          await sendTelegramMessage(
+            target.telegramChatId,
+            `💬 *Новое сообщение от ${fromName}:*\n\n${msgText}\n\nЧтобы ответить, используйте /msg ${user.id} <текст>`,
+            token
+          );
+        }
+
+        await send(`✅ *Сообщение отправлено пользователю ${target.displayName || target.name}*`);
+        return res.status(200).send('OK');
+      } catch {
+        await send('❌ *Ошибка отправки*');
+        return res.status(200).send('OK');
+      }
+    }
+
+    // ---- /inbox ----
+    if (text === '/inbox') {
+      if (!user) {
+        await send('❌ *Сначала привяжи аккаунт*');
+        return res.status(200).send('OK');
+      }
+      try {
+        const messages = await prisma.message.findMany({
+          where: { toUserId: user.id, isRead: false },
+          orderBy: { createdAt: 'desc' },
+          include: { fromUser: { select: { name: true, displayName: true } } },
+        });
+        if (messages.length === 0) {
+          await send('📭 *Новых сообщений нет.*');
+          return res.status(200).send('OK');
+        }
+        let reply = '💬 *Новые сообщения:*\n\n';
+        messages.forEach((msg) => {
+          const fromName = msg.fromUser.displayName || msg.fromUser.name;
+          reply += `👤 ${fromName}: ${msg.text}\n`;
+          reply += `   [Ответить](/msg ${msg.fromUserId} ...)\n\n`;
+        });
+        await prisma.message.updateMany({
+          where: { toUserId: user.id, isRead: false },
+          data: { isRead: true },
+        });
+        await send(reply, 'Markdown');
+        return res.status(200).send('OK');
+      } catch {
+        await send('❌ *Ошибка загрузки*');
+        return res.status(200).send('OK');
+      }
+    }
+
+    // ---- /chat <id> ----
+    if (text.startsWith('/chat ')) {
+      if (!user) {
+        await send('❌ *Сначала привяжи аккаунт*');
+        return res.status(200).send('OK');
+      }
+      const targetId = parseInt(text.replace('/chat ', '').trim());
+      if (isNaN(targetId)) {
+        await send('❌ *Укажите корректный ID*');
+        return res.status(200).send('OK');
+      }
+      const target = await getUserById(targetId);
+      if (!target) {
+        await send('❌ *Игрок не найден*');
+        return res.status(200).send('OK');
+      }
+
+      try {
+        const messages = await prisma.message.findMany({
+          where: {
+            OR: [
+              { fromUserId: user.id, toUserId: target.id },
+              { fromUserId: target.id, toUserId: user.id },
+            ],
+          },
+          orderBy: { createdAt: 'asc' },
+          take: 50,
+          include: { fromUser: { select: { name: true, displayName: true } } },
+        });
+        if (messages.length === 0) {
+          await send('💬 *Нет сообщений с этим пользователем.*');
+          return res.status(200).send('OK');
+        }
+        let reply = `💬 *История переписки с ${target.displayName || target.name}:*\n\n`;
+        messages.forEach((msg) => {
+          const fromName = msg.fromUser.displayName || msg.fromUser.name;
+          const prefix = msg.fromUserId === user.id ? 'Вы' : fromName;
+          reply += `**${prefix}:** ${msg.text}\n`;
+        });
+        await send(reply, 'Markdown');
+        return res.status(200).send('OK');
+      } catch {
+        await send('❌ *Ошибка загрузки*');
+        return res.status(200).send('OK');
+      }
+    }
+
     // ---- /daily ----
     if (text === '/daily') {
-      const user = await getUser();
       if (!user) {
         await send('❌ *Сначала привяжи аккаунт*');
         return res.status(200).send('OK');
@@ -850,7 +1117,6 @@ module.exports = async (req, res) => {
 
     // ---- /referral ----
     if (text === '/referral') {
-      const user = await getUser();
       if (!user) {
         await send('❌ *Сначала привяжи аккаунт*');
         return res.status(200).send('OK');
@@ -882,11 +1148,12 @@ module.exports = async (req, res) => {
         const users = await prisma.user.findMany({
           orderBy: { reputation: 'desc' },
           take: 10,
-          select: { name: true, reputation: true, balance: true },
+          select: { name: true, displayName: true, reputation: true, balance: true },
         });
         let msg = '🏆 *Топ по репутации:*\n\n';
         users.forEach((u, i) => {
-          msg += `${i+1}. ${u.name} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`;
+          const display = u.displayName || u.name;
+          msg += `${i+1}. ${display} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`;
         });
         await send(msg, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
@@ -898,7 +1165,6 @@ module.exports = async (req, res) => {
 
     // ---- /admin ----
     if (text === '/admin') {
-      const user = await getUser();
       if (!user || user.role !== 'admin') {
         await send('⛔ *Доступ запрещён.*');
         return res.status(200).send('OK');
