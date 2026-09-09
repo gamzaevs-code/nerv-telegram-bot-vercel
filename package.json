@@ -7,13 +7,13 @@
     "start": "node api/webhook.js",
     "postinstall": "npx prisma generate"
   },
-  "engines": {
-    "node": "24.x"
-  },
   "dependencies": {
     "@prisma/client": "^5.0.0"
   },
   "devDependencies": {
     "prisma": "^5.0.0"
+  },
+  "engines": {
+    "node": "24.x"
   }
 }
