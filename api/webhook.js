@@ -50,8 +50,6 @@ module.exports = async (req, res) => {
         }
       };
 
-      // ---------- ОБРАБОТКА КОНКРЕТНЫХ ДЕЙСТВИЙ ----------
-
       // ---- Меню ----
       if (data === 'menu') {
         await edit(
@@ -88,14 +86,14 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
-      // ---- Задания (список + кнопка "Взять") ----
+      // ---- Задания (список + кнопки "Взять" и "Голосовать") ----
       if (data === 'tasks') {
         try {
           const tasks = await prisma.task.findMany({
-            where: { status: 'open' },
+            where: { status: { in: ['open', 'voting'] } },
             take: 5,
             orderBy: { createdAt: 'desc' },
-            include: { creator: { select: { name: true } } },
+            include: { creator: { select: { name: true } }, player: { select: { name: true } } },
           });
           if (tasks.length === 0) {
             await edit('📭 *Нет открытых заданий.*', 'Markdown', {
@@ -104,18 +102,23 @@ module.exports = async (req, res) => {
             return res.status(200).send('OK');
           }
 
-          // Проверяем, является ли пользователь игроком
           const user = await getUser();
           const isPlayer = user && user.role === 'player';
+          const isViewer = user && (user.role === 'viewer' || user.role === 'admin');
 
           const buttons = [];
           tasks.forEach((t) => {
             const row = [
               { text: `📌 ${t.title} (${t.reward}₽)`, callback_data: `task_${t.id}` }
             ];
-            // Если пользователь игрок и задание открыто, добавляем кнопку "Взять"
+            // Кнопка "Взять" для игроков, если задание открыто
             if (isPlayer && t.status === 'open' && !t.playerId) {
               row.push({ text: '🎯 Взять', callback_data: `take_${t.id}` });
+            }
+            // Кнопки голосования для зрителей/админов, если задание в голосовании
+            if (isViewer && t.status === 'voting') {
+              row.push({ text: '✅ За', callback_data: `vote_${t.id}_approve` });
+              row.push({ text: '❌ Против', callback_data: `vote_${t.id}_reject` });
             }
             buttons.push(row);
           });
@@ -132,7 +135,7 @@ module.exports = async (req, res) => {
         }
       }
 
-      // ---- Просмотр задания (детали) ----
+      // ---- Детали задания ----
       if (data.startsWith('task_')) {
         const taskId = parseInt(data.split('_')[1]);
         if (isNaN(taskId)) {
@@ -154,12 +157,23 @@ module.exports = async (req, res) => {
           text += `👤 Создатель: ${task.creator.name}\n`;
           text += `📌 Статус: ${task.status}\n`;
           if (task.player) text += `🎮 Игрок: ${task.player.name}\n`;
-          await edit(text, 'Markdown', {
-            inline_keyboard: [
-              [{ text: '🔙 К списку', callback_data: 'tasks' }],
-              [{ text: '🔙 В меню', callback_data: 'menu' }],
-            ],
-          });
+          if (task.videoUrl) text += `🎬 Видео: есть\n`;
+
+          const buttons = [
+            [{ text: '🔙 К списку', callback_data: 'tasks' }],
+            [{ text: '🔙 В меню', callback_data: 'menu' }],
+          ];
+          // Если задание в голосовании, показываем кнопки голосования для зрителей
+          if (task.status === 'voting') {
+            const user = await getUser();
+            if (user && (user.role === 'viewer' || user.role === 'admin')) {
+              buttons.unshift([
+                { text: '✅ За', callback_data: `vote_${task.id}_approve` },
+                { text: '❌ Против', callback_data: `vote_${task.id}_reject` },
+              ]);
+            }
+          }
+          await edit(text, 'Markdown', { inline_keyboard: buttons });
           return res.status(200).send('OK');
         } catch {
           await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
@@ -185,7 +199,6 @@ module.exports = async (req, res) => {
         }
 
         try {
-          // Атомарное обновление (только если задание открыто и не взято)
           const updated = await prisma.task.updateMany({
             where: { id: taskId, status: 'open', playerId: null },
             data: { status: 'taken', playerId: user.id },
@@ -194,10 +207,9 @@ module.exports = async (req, res) => {
             await edit('❌ *Задание уже взято или недоступно*', 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] });
             return res.status(200).send('OK');
           }
-          // Получаем обновлённое задание для информации
           const task = await prisma.task.findUnique({ where: { id: taskId }, include: { creator: { select: { name: true } } } });
           await edit(
-            `✅ *Задание взято!*\n\n📌 ${task.title}\n💰 ${task.reward} ₽\n👤 Создатель: ${task.creator.name}\n\nЗагрузи видео-доказательство в личных сообщениях (пока не реализовано).`,
+            `✅ *Задание взято!*\n\n📌 ${task.title}\n💰 ${task.reward} ₽\n👤 Создатель: ${task.creator.name}\n\n📹 Отправьте видео-доказательство (файл) в этот чат.`,
             'Markdown',
             { inline_keyboard: [[{ text: '📋 Мои задания', callback_data: 'my_tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] }
           );
@@ -208,7 +220,92 @@ module.exports = async (req, res) => {
         }
       }
 
-      // ---- Мои задания (для игрока: взятые) ----
+      // ---- Голосование ----
+      if (data.startsWith('vote_')) {
+        const parts = data.split('_');
+        const taskId = parseInt(parts[1]);
+        const value = parts[2];
+        const user = await getUser();
+        if (!user) {
+          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          return res.status(200).send('OK');
+        }
+
+        // Проверка, не голосовал ли уже
+        const existing = await prisma.vote.findUnique({
+          where: { taskId_voterId: { taskId, voterId: user.id } },
+        });
+        if (existing) {
+          await edit('❌ *Ты уже голосовал за это задание*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          return res.status(200).send('OK');
+        }
+
+        try {
+          await prisma.vote.create({
+            data: {
+              taskId,
+              voterId: user.id,
+              value,
+            },
+          });
+
+          // Обновляем репутацию за голосование
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { reputation: { increment: 1 } },
+          });
+
+          // Подсчёт голосов
+          const votes = await prisma.vote.groupBy({
+            by: ['value'],
+            where: { taskId },
+            _count: true,
+          });
+          const approveCount = votes.find(v => v.value === 'approve')?._count || 0;
+          const rejectCount = votes.find(v => v.value === 'reject')?._count || 0;
+
+          await edit(
+            `✅ *Голос принят!*\n\n📌 Задание #${taskId}\nЗа: ${approveCount}\nПротив: ${rejectCount}`,
+            'Markdown',
+            { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] }
+          );
+
+          // Автозавершение при 5 голосах "За"
+          if (approveCount >= 5) {
+            const task = await prisma.task.update({
+              where: { id: taskId },
+              data: { status: 'approved' },
+            });
+            // Награда игроку
+            await prisma.user.update({
+              where: { id: task.playerId },
+              data: { balance: { increment: task.reward }, completedTasksCount: { increment: 1 } },
+            });
+            await prisma.transaction.create({
+              data: {
+                userId: task.playerId,
+                type: 'reward',
+                amount: task.reward,
+                status: 'completed',
+                reason: `Выполнение задания "${task.title}"`,
+              },
+            });
+            // Уведомление игроку
+            const player = await prisma.user.findUnique({ where: { id: task.playerId }, select: { telegramChatId: true } });
+            if (player && player.telegramChatId) {
+              await send(`🎉 *Задание выполнено!*\n\n📌 ${task.title}\n💰 +${task.reward} ₽`);
+            }
+          }
+
+          return res.status(200).send('OK');
+        } catch (error) {
+          console.error(error);
+          await edit('❌ *Ошибка голосования*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
+          return res.status(200).send('OK');
+        }
+      }
+
+      // ---- Мои задания ----
       if (data === 'my_tasks') {
         const user = await getUser();
         if (!user) {
@@ -217,7 +314,7 @@ module.exports = async (req, res) => {
         }
         try {
           const tasks = await prisma.task.findMany({
-            where: { playerId: user.id, status: { in: ['taken', 'voting'] } },
+            where: { playerId: user.id, status: { in: ['taken', 'voting', 'approved'] } },
             orderBy: { updatedAt: 'desc' },
             include: { creator: { select: { name: true } } },
           });
@@ -237,7 +334,7 @@ module.exports = async (req, res) => {
         }
       }
 
-      // ---- Кошелёк (с транзакциями) ----
+      // ---- Кошелёк ----
       if (data === 'wallet') {
         const user = await getUser();
         if (!user) {
@@ -302,7 +399,7 @@ module.exports = async (req, res) => {
         }
       }
 
-      // ---- Рейтинг (лидерборд) ----
+      // ---- Рейтинг ----
       if (data === 'leaderboard') {
         try {
           const users = await prisma.user.findMany({
@@ -357,6 +454,10 @@ module.exports = async (req, res) => {
         const user = await getUser();
         if (!user) {
           await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+          return res.status(200).send('OK');
+        }
+        if (user.role !== 'viewer' && user.role !== 'admin') {
+          await edit('❌ *Только зрители и админы могут создавать задания*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
           return res.status(200).send('OK');
         }
         userState[chatId] = { step: 'title' };
@@ -446,10 +547,10 @@ module.exports = async (req, res) => {
     if (text === '/tasks') {
       try {
         const tasks = await prisma.task.findMany({
-          where: { status: 'open' },
+          where: { status: { in: ['open', 'voting'] } },
           take: 5,
           orderBy: { createdAt: 'desc' },
-          include: { creator: { select: { name: true } } },
+          include: { creator: { select: { name: true } }, player: { select: { name: true } } },
         });
         if (tasks.length === 0) {
           await send('📭 *Нет открытых заданий.*', 'Markdown', {
@@ -459,6 +560,8 @@ module.exports = async (req, res) => {
         }
         const user = await getUser();
         const isPlayer = user && user.role === 'player';
+        const isViewer = user && (user.role === 'viewer' || user.role === 'admin');
+
         const buttons = [];
         tasks.forEach((t) => {
           const row = [
@@ -467,9 +570,14 @@ module.exports = async (req, res) => {
           if (isPlayer && t.status === 'open' && !t.playerId) {
             row.push({ text: '🎯 Взять', callback_data: `take_${t.id}` });
           }
+          if (isViewer && t.status === 'voting') {
+            row.push({ text: '✅ За', callback_data: `vote_${t.id}_approve` });
+            row.push({ text: '❌ Против', callback_data: `vote_${t.id}_reject` });
+          }
           buttons.push(row);
         });
         buttons.push([{ text: '🔙 Назад', callback_data: 'menu' }]);
+
         await send('📋 *Доступные задания:*', 'Markdown', { inline_keyboard: buttons });
         return res.status(200).send('OK');
       } catch {
@@ -553,6 +661,53 @@ module.exports = async (req, res) => {
         await send('❌ *Ошибка*');
         return res.status(200).send('OK');
       }
+    }
+
+    // ---------- ОБРАБОТКА ВИДЕО ----------
+    if (message.video || message.document) {
+      const user = await prisma.user.findFirst({
+        where: { telegramChatId: String(chatId) },
+        select: { id: true, role: true },
+      });
+      if (!user || user.role !== 'player') {
+        await send('❌ *Только игроки могут загружать видео для заданий.*');
+        return res.status(200).send('OK');
+      }
+
+      // Ищем задание, которое игрок взял и находится в статусе taken
+      const task = await prisma.task.findFirst({
+        where: { playerId: user.id, status: 'taken' },
+        orderBy: { updatedAt: 'desc' },
+        include: { creator: { select: { name: true, telegramChatId: true } } },
+      });
+      if (!task) {
+        await send('❌ *У тебя нет активных заданий, требующих видео.*');
+        return res.status(200).send('OK');
+      }
+
+      const fileId = message.video?.file_id || message.document?.file_id;
+      if (!fileId) {
+        await send('❌ *Не удалось получить видео.*');
+        return res.status(200).send('OK');
+      }
+
+      // Обновляем задание
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { status: 'voting', videoUrl: fileId },
+      });
+
+      await send(
+        `✅ *Видео загружено для задания:*\n\n📌 ${task.title}\n\nТеперь зрители могут голосовать.`
+      );
+
+      // Уведомляем создателя
+      if (task.creator.telegramChatId) {
+        await send(
+          `🎬 *Игрок загрузил видео для вашего задания:*\n\n📌 ${task.title}\n\nПерейдите в список заданий для голосования.`
+        );
+      }
+      return res.status(200).send('OK');
     }
 
     // ---- Пошаговое создание задания ----
