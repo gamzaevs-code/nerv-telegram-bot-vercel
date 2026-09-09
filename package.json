@@ -1,0 +1,12 @@
+@'
+{
+  "name": "nerv-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for NERV on Vercel",
+  "main": "api/webhook.js",
+  "scripts": {
+    "start": "node api/webhook.js"
+  },
+  "dependencies": {}
+}
+'@ | Out-File -FilePath package.json -Encoding utf8
