@@ -1,6 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// Хранилище ожидающих email (в памяти)
+const waitingForEmail = new Map();
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(200).send('OK');
 
@@ -39,7 +42,7 @@ module.exports = async (req, res) => {
         `📋 Команды:\n` +
         `/profile — Мой профиль\n` +
         `/tasks — Список заданий\n` +
-        `/link <email> — Привязать аккаунт\n` +
+        `/link your@email.com — Привязать аккаунт\n` +
         `/help — Помощь`
       );
       return res.status(200).send('OK');
@@ -51,7 +54,7 @@ module.exports = async (req, res) => {
         `/start — Главное меню\n` +
         `/profile — Мой профиль\n` +
         `/tasks — Список заданий\n` +
-        `/link <email> — Привязать аккаунт\n` +
+        `/link your@email.com — Привязать аккаунт\n` +
         `/help — Помощь`
       );
       return res.status(200).send('OK');
@@ -93,6 +96,7 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // /link с email
     if (text.startsWith('/link ')) {
       const email = text.replace('/link ', '').trim().toLowerCase();
       if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
@@ -101,7 +105,37 @@ module.exports = async (req, res) => {
       }
       const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
       if (!user) {
-        await sendMessage('❌ *Пользователь с таким email не найден.*');
+        await sendMessage('❌ *Пользователь с таким email не найден.*\n\nПроверь email или зарегистрируйся на сайте.');
+        return res.status(200).send('OK');
+      }
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { telegramChatId: String(chatId) },
+      });
+      await sendMessage(`✅ *Аккаунт привязан!*\n\n👤 ${user.name}`);
+      return res.status(200).send('OK');
+    }
+
+    // /link без email — запрашиваем email
+    if (text === '/link') {
+      waitingForEmail.set(chatId, true);
+      await sendMessage('📧 *Введите ваш email:*\n\nНапример: `user@example.com`');
+      return res.status(200).send('OK');
+    }
+
+    // Обработка ввода email (если бот ждёт)
+    if (waitingForEmail.has(chatId)) {
+      waitingForEmail.delete(chatId);
+      const email = text.trim().toLowerCase();
+
+      if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
+        await sendMessage('❌ *Неверный формат email.*\n\nПопробуй ещё раз: `/link`');
+        return res.status(200).send('OK');
+      }
+
+      const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
+      if (!user) {
+        await sendMessage('❌ *Пользователь с таким email не найден.*\n\nПроверь email или зарегистрируйся на сайте.');
         return res.status(200).send('OK');
       }
       await prisma.user.update({
