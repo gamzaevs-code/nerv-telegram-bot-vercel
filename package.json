@@ -4,9 +4,13 @@
   "description": "Telegram bot for NERV on Vercel",
   "main": "api/webhook.js",
   "scripts": {
-    "start": "node api/webhook.js"
+    "start": "node api/webhook.js",
+    "postinstall": "prisma skills sync || exit 0"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@prisma/client": "^7.10.0",
+    "prisma": "^8.0.0-rc.13"
+  },
   "engines": {
     "node": "24.x"
   }
