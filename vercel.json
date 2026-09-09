@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/webhook.js": {
+      "runtime": "nodejs24.x"
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/webhook" }
+  ]
+}
