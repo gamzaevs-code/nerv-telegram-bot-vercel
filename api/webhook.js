@@ -111,6 +111,73 @@ const notifyLevelUp = async (userId, levelInfo, sendMessageFn) => {
   } catch (e) { console.error('notifyLevelUp:', e); }
 };
 
+// ========== ХЕЛПЕРЫ ДЛЯ ЭТАПА 3 ==========
+
+// Проверка и выдача достижений
+const checkAchievements = async (userId) => {
+  try {
+    const u = await query(
+      `SELECT balance, reputation, "loginStreak",
+              (SELECT COUNT(*)::int FROM "Task" WHERE "playerId"=$1 AND status='approved') AS tasks_completed,
+              (SELECT COUNT(*)::int FROM "Task" WHERE "creatorId"=$1) AS tasks_created,
+              (SELECT COUNT(*)::int FROM "Message" WHERE "fromUserId"=$1) AS messages_sent,
+              (SELECT COUNT(*)::int + 1 FROM "User" WHERE reputation > (SELECT reputation FROM "User" WHERE id=$1)) AS rank
+       FROM "User" WHERE id=$1`,
+      [userId]
+    );
+    if (u.rows.length === 0) return [];
+    const s = u.rows[0];
+
+    const conditions = {
+      tasks_completed_1: s.tasks_completed >= 1,
+      tasks_completed_5: s.tasks_completed >= 5,
+      tasks_completed_10: s.tasks_completed >= 10,
+      tasks_created_5: s.tasks_created >= 5,
+      balance_5000: s.balance >= 5000,
+      reputation_50: s.reputation >= 50,
+      streak_7: s.loginStreak >= 7,
+      streak_30: s.loginStreak >= 30,
+      messages_10: s.messages_sent >= 10,
+      rank_1: s.rank === 1,
+    };
+
+    const all = await query('SELECT id, name, icon, reward, "conditionType" FROM "Achievement"');
+    const unlocked = await query('SELECT "achievementId" FROM "UserAchievement" WHERE "userId"=$1', [userId]);
+    const unlockedIds = new Set(unlocked.rows.map(r => r.achievementId));
+
+    const newAchievements = [];
+    for (const a of all.rows) {
+      if (unlockedIds.has(a.id)) continue;
+      if (conditions[a.conditionType]) {
+        await query('INSERT INTO "UserAchievement" ("userId","achievementId","unlockedAt") VALUES ($1,$2,NOW())', [userId, a.id]);
+        await query('UPDATE "User" SET balance = balance + $1 WHERE id=$2', [a.reward, userId]);
+        await query(
+          `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
+           VALUES ($1,'achievement',$2,'completed',$3,NOW())`,
+          [userId, a.reward, `Достижение: ${a.name}`]
+        );
+        newAchievements.push(a);
+      }
+    }
+    return newAchievements;
+  } catch (e) { console.error('checkAchievements:', e); return []; }
+};
+
+// Уведомление о новых достижениях
+const notifyAchievements = async (userId, achievements, sendMessageFn) => {
+  if (!achievements || achievements.length === 0) return;
+  try {
+    const r = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [userId]);
+    if (!r.rows[0]?.telegramChatId) return;
+    for (const a of achievements) {
+      await sendMessageFn(
+        r.rows[0].telegramChatId,
+        `🎖 *Новое достижение!*\n\n${a.icon} *${a.name}*\n💰 +${a.reward} ₽`
+      );
+    }
+  } catch (e) { console.error('notifyAchievements:', e); }
+};
+
 // ========== КОНЕЦ ХЕЛПЕРОВ ==========
 
 module.exports = async (req, res) => {
@@ -246,7 +313,7 @@ module.exports = async (req, res) => {
         const rank = await query(`SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1`, [user.reputation]);
         const level = user.level || 1;
         const exp = user.experience || 0;
-        const expForNext = Math.pow(level, 2) * 50; // сколько нужно для след. уровня
+        const expForNext = Math.pow(level, 2) * 50;
         const expForCurrent = Math.pow(level - 1, 2) * 50;
         const progress = exp - expForCurrent;
         const needed = expForNext - expForCurrent;
@@ -355,9 +422,10 @@ module.exports = async (req, res) => {
           if (r.rowCount === 0) { await edit('❌ *Уже взято*', 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
           const t = r.rows[0];
           
-          // XP и квесты
+          // XP, квесты, достижения
           const xpRes = await addExperience(user.id, 5);
           const questRewards = await checkDailyQuests(user.id, 'task_taken', 1);
+          const achs = await checkAchievements(user.id);
           
           let msg = `✅ *Задание взято!*\n\n📌 ${t.title}\n💰 ${t.reward} ₽\n\n_+5 XP_\n\nОтправь видео в этот чат, чтобы сдать задание.`;
           if (questRewards.length > 0) {
@@ -367,6 +435,7 @@ module.exports = async (req, res) => {
           
           await edit(msg, 'Markdown', { inline_keyboard: [[{ text: '📝 Мои задания', callback_data: 'my_tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] });
           await notifyLevelUp(user.id, xpRes, sendMessage);
+          await notifyAchievements(user.id, achs, sendMessage);
           
           const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
           if (cr.rows[0]?.telegramChatId) await sendMessage(cr.rows[0].telegramChatId, `🎯 *Задание взято!*\n📌 ${t.title}\n👤 ${user.displayName || user.name}`);
@@ -401,9 +470,10 @@ module.exports = async (req, res) => {
           await query('INSERT INTO "Vote" ("taskId","voterId",value,"createdAt") VALUES ($1,$2,$3,NOW())', [taskId, user.id, value]);
           await query('UPDATE "User" SET reputation = reputation + 1 WHERE id = $1', [user.id]);
           
-          // XP и квесты
+          // XP, квесты, достижения
           const xpRes = await addExperience(user.id, 3);
           const questRewards = await checkDailyQuests(user.id, 'vote', 1);
+          const achs = await checkAchievements(user.id);
           
           const vr = await query('SELECT value, COUNT(*)::int AS cnt FROM "Vote" WHERE "taskId"=$1 GROUP BY value', [taskId]);
           const approve = vr.rows.find(x => x.value === 'approve')?.cnt || 0;
@@ -416,12 +486,12 @@ module.exports = async (req, res) => {
           }
           await edit(msg, 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] });
           await notifyLevelUp(user.id, xpRes, sendMessage);
+          await notifyAchievements(user.id, achs, sendMessage);
           
           if (approve >= 5) {
             const tr = await query(`UPDATE "Task" SET status='approved' WHERE id=$1 RETURNING *`, [taskId]);
             const t = tr.rows[0];
             
-            // Streak-множитель для игрока
             const plr = await query('SELECT "loginStreak" FROM "User" WHERE id=$1', [t.playerId]);
             const mult = getStreakMultiplier(plr.rows[0]?.loginStreak || 0);
             const reward = Math.round(t.reward * mult);
@@ -429,10 +499,9 @@ module.exports = async (req, res) => {
             await query('UPDATE "User" SET balance = balance + $1, "completedTasksCount" = "completedTasksCount" + 1 WHERE id=$2', [reward, t.playerId]);
             await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'reward',$2,'completed',$3,NOW())`, [t.playerId, reward, `Выполнение "${t.title}"`]);
             
-            // XP игроку
             const xpPlayer = await addExperience(t.playerId, 50);
-            // Квесты игроку
             const qr = await checkDailyQuests(t.playerId, 'task_completed', 1);
+            const achsPlayer = await checkAchievements(t.playerId);
             
             const pl = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.playerId]);
             if (pl.rows[0]?.telegramChatId) {
@@ -446,6 +515,7 @@ module.exports = async (req, res) => {
               await sendMessage(pl.rows[0].telegramChatId, msgPlayer);
             }
             await notifyLevelUp(t.playerId, xpPlayer, sendMessage);
+            await notifyAchievements(t.playerId, achsPlayer, sendMessage);
             
             const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
             if (cr.rows[0]?.telegramChatId) await sendMessage(cr.rows[0].telegramChatId, `✅ *Задание "${t.title}" выполнено!*`);
@@ -534,11 +604,13 @@ module.exports = async (req, res) => {
           const spendings = await query(`SELECT COALESCE(SUM(amount),0)::int AS s FROM "Transaction" WHERE "userId"=$1 AND amount < 0`, [user.id]);
           const questsToday = await query(`SELECT COUNT(*)::int AS c FROM "UserDailyQuest" WHERE "userId"=$1 AND date = CURRENT_DATE AND completed = true`, [user.id]);
           const totalQuests = await query(`SELECT COUNT(*)::int AS c FROM "DailyQuest"`);
+          const achievementsCount = await query(`SELECT COUNT(*)::int AS c FROM "UserAchievement" WHERE "userId"=$1`, [user.id]);
           const text = `📈 *Статистика ${user.displayName || user.name}*\n\n`
             + `🎖 Уровень: *${user.level || 1}* (${user.experience || 0} XP)\n`
             + `🏅 Место в рейтинге: *#${rank.rows[0].pos}*\n`
             + `⭐ Репутация: *${user.reputation}*\n`
-            + `🔥 Streak: *${user.loginStreak} дн.*\n\n`
+            + `🔥 Streak: *${user.loginStreak} дн.*\n`
+            + `🎖 Достижений: *${achievementsCount.rows[0].c}*\n\n`
             + `🎨 Создано заданий: *${tasksCreated.rows[0].c}*\n`
             + `✅ Выполнено заданий: *${tasksDone.rows[0].c}*\n`
             + `📅 Квестов сегодня: *${questsToday.rows[0].c}/${totalQuests.rows[0].c}*\n\n`
@@ -633,7 +705,6 @@ module.exports = async (req, res) => {
         const hoursSince = last ? (now - last) / (1000 * 60 * 60) : 24;
         if (hoursSince < 24) { await edit(`⏳ *Бонус уже получен.*\nСледующий через ${Math.ceil(24 - hoursSince)} ч.`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
 
-        // Проверяем, продолжается ли streak (24-48 часов с прошлого бонуса)
         const streakContinues = last && hoursSince >= 24 && hoursSince <= 48;
         const newStreak = streakContinues ? (user.loginStreak || 0) + 1 : 1;
         const mult = getStreakMultiplier(newStreak);
@@ -644,6 +715,7 @@ module.exports = async (req, res) => {
         await query('UPDATE "User" SET balance = balance + $1, "loginStreak" = $2, "lastDailyBonusAt" = NOW() WHERE id=$3', [bonus, newStreak, user.id]);
         await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'daily_bonus',$2,'completed',$3,NOW())`, [user.id, bonus, `Ежедневный бонус (streak ${newStreak})`]);
         const xpRes = await addExperience(user.id, 15);
+        const achs = await checkAchievements(user.id);
         
         let streakMsg = streakContinues 
           ? `🔥 Streak: *${newStreak}* дн. (×${mult})` 
@@ -659,6 +731,7 @@ module.exports = async (req, res) => {
           { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
         );
         await notifyLevelUp(user.id, xpRes, sendMessage);
+        await notifyAchievements(user.id, achs, sendMessage);
         return res.status(200).send('OK');
       }
 
@@ -893,6 +966,9 @@ module.exports = async (req, res) => {
       await send(`✅ *Отправлено ${target.displayName || target.name}*`);
       const tr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [target.id]);
       if (tr.rows[0]?.telegramChatId) await sendMessage(tr.rows[0].telegramChatId, `💬 *От ${user.displayName || user.name}:*\n\n${msgText}\n\nОтветить: /msg ${user.id} <текст>`);
+      // проверка достижения "Общительный"
+      const achs = await checkAchievements(user.id);
+      await notifyAchievements(user.id, achs, sendMessage);
       return res.status(200).send('OK');
     }
 
@@ -943,8 +1019,10 @@ module.exports = async (req, res) => {
       await query('UPDATE "User" SET balance = balance + $1, "loginStreak"=$2, "lastDailyBonusAt"=NOW() WHERE id=$3', [bonus, newStreak, user.id]);
       await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'daily_bonus',$2,'completed',$3,NOW())`, [user.id, bonus, `Ежедневный бонус (streak ${newStreak})`]);
       const xpRes = await addExperience(user.id, 15);
+      const achs = await checkAchievements(user.id);
       await send(`🎁 *Бонус получен!* +${bonus} ₽\n🔥 Streak: ${newStreak} дн. (×${mult})\n_+15 XP_`);
       await notifyLevelUp(user.id, xpRes, sendMessage);
+      await notifyAchievements(user.id, achs, sendMessage);
       return res.status(200).send('OK');
     }
 
@@ -1031,9 +1109,9 @@ module.exports = async (req, res) => {
         await query('UPDATE "User" SET balance = balance - $1 WHERE id=$2', [reward, user.id]);
         await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'task_create',$2,'completed',$3,NOW())`, [user.id, -reward, `Создание "${t.title}"`]);
         
-        // XP и квесты
         const xpRes = await addExperience(user.id, 10);
         const questRewards = await checkDailyQuests(user.id, 'task_created', 1);
+        const achs = await checkAchievements(user.id);
         
         delete userState[chatId];
         let msg = `✅ *Создано!*\n📌 ${t.title}\n💰 ${t.reward} ₽\n\n_+10 XP_`;
@@ -1043,6 +1121,7 @@ module.exports = async (req, res) => {
         }
         await send(msg, 'Markdown', { inline_keyboard: [[{ text: '📋 Задания', callback_data: 'tasks' }], [{ text: '🎨 Мои созданные', callback_data: 'my_created' }]] });
         await notifyLevelUp(user.id, xpRes, sendMessage);
+        await notifyAchievements(user.id, achs, sendMessage);
         return res.status(200).send('OK');
       }
     }
