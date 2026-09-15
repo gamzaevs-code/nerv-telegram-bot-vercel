@@ -13,10 +13,8 @@ const userState = {};
 
 // ========== ХЕЛПЕРЫ ДЛЯ ЭТАПА 2 ==========
 
-// Формула уровня: level = floor(sqrt(exp / 50)) + 1
 const calcLevel = (exp) => Math.floor(Math.sqrt(exp / 50)) + 1;
 
-// Добавляет опыт и возвращает инфу о повышении
 const addExperience = async (userId, amount) => {
   try {
     const r = await query('SELECT level, experience FROM "User" WHERE id=$1', [userId]);
@@ -30,7 +28,6 @@ const addExperience = async (userId, amount) => {
   } catch (e) { console.error('addExperience:', e); return null; }
 };
 
-// Streak-множитель
 const getStreakMultiplier = (streak) => {
   if (streak >= 14) return 2.0;
   if (streak >= 7) return 1.5;
@@ -38,7 +35,6 @@ const getStreakMultiplier = (streak) => {
   return 1.0;
 };
 
-// Проверка и обновление ежедневных квестов
 const checkDailyQuests = async (userId, actionType, amount = 1) => {
   try {
     const quests = await query(
@@ -90,7 +86,6 @@ const checkDailyQuests = async (userId, actionType, amount = 1) => {
   } catch (e) { console.error('checkDailyQuests:', e); return []; }
 };
 
-// Уведомление о повышении уровня
 const notifyLevelUp = async (userId, levelInfo, sendMessageFn) => {
   if (!levelInfo || !levelInfo.levelUp) return;
   try {
@@ -111,9 +106,8 @@ const notifyLevelUp = async (userId, levelInfo, sendMessageFn) => {
   } catch (e) { console.error('notifyLevelUp:', e); }
 };
 
-// ========== ХЕЛПЕРЫ ДЛЯ ЭТАПА 3 ==========
+// ========== ХЕЛПЕРЫ ДЛЯ ЭТАПА 3.1 ==========
 
-// Проверка и выдача достижений
 const checkAchievements = async (userId) => {
   try {
     const u = await query(
@@ -163,7 +157,6 @@ const checkAchievements = async (userId) => {
   } catch (e) { console.error('checkAchievements:', e); return []; }
 };
 
-// Уведомление о новых достижениях
 const notifyAchievements = async (userId, achievements, sendMessageFn) => {
   if (!achievements || achievements.length === 0) return;
   try {
@@ -176,6 +169,77 @@ const notifyAchievements = async (userId, achievements, sendMessageFn) => {
       );
     }
   } catch (e) { console.error('notifyAchievements:', e); }
+};
+
+// ========== ХЕЛПЕРЫ ДЛЯ ЭТАПА 3.2 ==========
+
+const processReferralEarnings = async (userId, sourceAmount, reason = 'Награда реферала') => {
+  try {
+    const alreadyEarned = await query(
+      `SELECT id FROM "ReferralEarning" WHERE "fromUserId"=$1 LIMIT 1`,
+      [userId]
+    );
+    if (alreadyEarned.rows.length > 0) return [];
+
+    const levels = [
+      { level: 1, percent: 0.10 },
+      { level: 2, percent: 0.05 },
+      { level: 3, percent: 0.02 },
+    ];
+
+    const earnings = [];
+    let currentUserId = userId;
+    let referrerRow = await query('SELECT "referredBy" FROM "User" WHERE id=$1', [currentUserId]);
+    let referrerId = referrerRow.rows[0]?.referredBy;
+
+    for (const { level, percent } of levels) {
+      if (!referrerId) break;
+
+      const bonus = Math.max(Math.round(sourceAmount * percent), 5);
+      await query('UPDATE "User" SET balance = balance + $1 WHERE id=$2', [bonus, referrerId]);
+      await query(
+        `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
+         VALUES ($1,'referral_bonus',$2,'completed',$3,NOW())`,
+        [referrerId, bonus, `Реферальный бонус (уровень ${level}) от пользователя #${userId}`]
+      );
+      await query(
+        `INSERT INTO "ReferralEarning" ("userId","fromUserId",level,amount,"createdAt")
+         VALUES ($1,$2,$3,$4,NOW())`,
+        [referrerId, userId, level, bonus]
+      );
+
+      const entry = { level, userId: referrerId, bonus };
+
+      const refChat = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [referrerId]);
+      if (refChat.rows[0]?.telegramChatId) {
+        entry.chatId = refChat.rows[0].telegramChatId;
+      }
+
+      earnings.push(entry);
+
+      const nextRef = await query('SELECT "referredBy" FROM "User" WHERE id=$1', [referrerId]);
+      referrerId = nextRef.rows[0]?.referredBy;
+      currentUserId = referrerId;
+    }
+
+    return earnings;
+  } catch (e) {
+    console.error('processReferralEarnings:', e);
+    return [];
+  }
+};
+
+const notifyReferralEarnings = async (earnings, sendMessageFn) => {
+  if (!earnings || earnings.length === 0) return;
+  for (const e of earnings) {
+    if (!e.chatId) continue;
+    try {
+      await sendMessageFn(
+        e.chatId,
+        `💸 *Реферальный бонус!*\n\nУровень: *${e.level}*\n💰 +${e.bonus} ₽\n\n_Спасибо, что приглашаешь друзей!_`
+      );
+    } catch (err) { console.error('notifyReferralEarnings:', err); }
+  }
 };
 
 // ========== КОНЕЦ ХЕЛПЕРОВ ==========
@@ -422,7 +486,6 @@ module.exports = async (req, res) => {
           if (r.rowCount === 0) { await edit('❌ *Уже взято*', 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
           const t = r.rows[0];
           
-          // XP, квесты, достижения
           const xpRes = await addExperience(user.id, 5);
           const questRewards = await checkDailyQuests(user.id, 'task_taken', 1);
           const achs = await checkAchievements(user.id);
@@ -470,7 +533,6 @@ module.exports = async (req, res) => {
           await query('INSERT INTO "Vote" ("taskId","voterId",value,"createdAt") VALUES ($1,$2,$3,NOW())', [taskId, user.id, value]);
           await query('UPDATE "User" SET reputation = reputation + 1 WHERE id = $1', [user.id]);
           
-          // XP, квесты, достижения
           const xpRes = await addExperience(user.id, 3);
           const questRewards = await checkDailyQuests(user.id, 'vote', 1);
           const achs = await checkAchievements(user.id);
@@ -516,6 +578,10 @@ module.exports = async (req, res) => {
             }
             await notifyLevelUp(t.playerId, xpPlayer, sendMessage);
             await notifyAchievements(t.playerId, achsPlayer, sendMessage);
+
+            // Реферальные начисления (только за первое выполненное задание)
+            const refEarnings = await processReferralEarnings(t.playerId, reward);
+            await notifyReferralEarnings(refEarnings, sendMessage);
             
             const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
             if (cr.rows[0]?.telegramChatId) await sendMessage(cr.rows[0].telegramChatId, `✅ *Задание "${t.title}" выполнено!*`);
@@ -605,6 +671,7 @@ module.exports = async (req, res) => {
           const questsToday = await query(`SELECT COUNT(*)::int AS c FROM "UserDailyQuest" WHERE "userId"=$1 AND date = CURRENT_DATE AND completed = true`, [user.id]);
           const totalQuests = await query(`SELECT COUNT(*)::int AS c FROM "DailyQuest"`);
           const achievementsCount = await query(`SELECT COUNT(*)::int AS c FROM "UserAchievement" WHERE "userId"=$1`, [user.id]);
+          const referralsEarned = await query(`SELECT COALESCE(SUM(amount),0)::int AS s FROM "ReferralEarning" WHERE "userId"=$1`, [user.id]);
           const text = `📈 *Статистика ${user.displayName || user.name}*\n\n`
             + `🎖 Уровень: *${user.level || 1}* (${user.experience || 0} XP)\n`
             + `🏅 Место в рейтинге: *#${rank.rows[0].pos}*\n`
@@ -615,7 +682,8 @@ module.exports = async (req, res) => {
             + `✅ Выполнено заданий: *${tasksDone.rows[0].c}*\n`
             + `📅 Квестов сегодня: *${questsToday.rows[0].c}/${totalQuests.rows[0].c}*\n\n`
             + `📥 Всего заработано: *${earnings.rows[0].s} ₽*\n`
-            + `📤 Всего потрачено: *${Math.abs(spendings.rows[0].s)} ₽*\n`;
+            + `📤 Всего потрачено: *${Math.abs(spendings.rows[0].s)} ₽*\n`
+            + `💸 Реферальные: *${referralsEarned.rows[0].s} ₽*\n`;
           await edit(text, 'Markdown', { inline_keyboard: [[{ text: '📊 Профиль', callback_data: 'profile' }], [{ text: '🏆 Рейтинг', callback_data: 'leaderboard' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] });
         } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
         return res.status(200).send('OK');
@@ -740,8 +808,38 @@ module.exports = async (req, res) => {
         if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         let code = user.referralCode;
         if (!code) { code = Math.random().toString(36).substring(2, 8).toUpperCase(); await query('UPDATE "User" SET "referralCode"=$1 WHERE id=$2', [code, user.id]); }
-        const inv = await query('SELECT COUNT(*)::int AS cnt FROM "User" WHERE "referredBy"=$1', [user.id]);
-        await edit(`🔗 *Рефералы*\n\nВаш код: *${code}*\nСсылка: https://nerv.vercel.app/signup?ref=${code}\n\n👥 Приглашено: ${inv.rows[0].cnt}\n💰 50 ₽ за каждого.`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+
+        const lvl1 = await query('SELECT COUNT(*)::int AS c FROM "User" WHERE "referredBy"=$1', [user.id]);
+        const lvl2 = await query(
+          `SELECT COUNT(*)::int AS c FROM "User" u
+           WHERE u."referredBy" IN (SELECT id FROM "User" WHERE "referredBy"=$1)`,
+          [user.id]
+        );
+        const lvl3 = await query(
+          `SELECT COUNT(*)::int AS c FROM "User" u
+           WHERE u."referredBy" IN (
+             SELECT id FROM "User" WHERE "referredBy" IN (
+               SELECT id FROM "User" WHERE "referredBy"=$1
+             )
+           )`,
+          [user.id]
+        );
+        const totalEarned = await query(
+          `SELECT COALESCE(SUM(amount),0)::int AS s FROM "ReferralEarning" WHERE "userId"=$1`,
+          [user.id]
+        );
+
+        const text = `🔗 *Реферальная программа*\n\n` +
+          `Ваш код: *${code}*\n` +
+          `Ссылка: https://nerv.vercel.app/signup?ref=${code}\n\n` +
+          `📊 *Ваша сеть:*\n` +
+          `├ Уровень 1: *${lvl1.rows[0].c}* × 50 ₽\n` +
+          `├ Уровень 2: *${lvl2.rows[0].c}* × 25 ₽\n` +
+          `└ Уровень 3: *${lvl3.rows[0].c}* × 10 ₽\n\n` +
+          `💰 *Всего заработано:* ${totalEarned.rows[0].s} ₽\n\n` +
+          `_Бонус начисляется один раз, когда ваш реферал выполняет первое задание._`;
+
+        await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
       }
 
@@ -966,7 +1064,6 @@ module.exports = async (req, res) => {
       await send(`✅ *Отправлено ${target.displayName || target.name}*`);
       const tr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [target.id]);
       if (tr.rows[0]?.telegramChatId) await sendMessage(tr.rows[0].telegramChatId, `💬 *От ${user.displayName || user.name}:*\n\n${msgText}\n\nОтветить: /msg ${user.id} <текст>`);
-      // проверка достижения "Общительный"
       const achs = await checkAchievements(user.id);
       await notifyAchievements(user.id, achs, sendMessage);
       return res.status(200).send('OK');
@@ -1031,8 +1128,15 @@ module.exports = async (req, res) => {
       if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
       let code = user.referralCode;
       if (!code) { code = Math.random().toString(36).substring(2, 8).toUpperCase(); await query('UPDATE "User" SET "referralCode"=$1 WHERE id=$2', [code, user.id]); }
-      const inv = await query('SELECT COUNT(*)::int AS cnt FROM "User" WHERE "referredBy"=$1', [user.id]);
-      await send(`🔗 *Рефералы*\n\nКод: *${code}*\nСсылка: https://nerv.vercel.app/signup?ref=${code}\n\n👥 Приглашено: ${inv.rows[0].cnt}`);
+      const lvl1 = await query('SELECT COUNT(*)::int AS c FROM "User" WHERE "referredBy"=$1', [user.id]);
+      const totalEarned = await query('SELECT COALESCE(SUM(amount),0)::int AS s FROM "ReferralEarning" WHERE "userId"=$1', [user.id]);
+      await send(
+        `🔗 *Рефералы*\n\n` +
+        `Код: *${code}*\n` +
+        `Ссылка: https://nerv.vercel.app/signup?ref=${code}\n\n` +
+        `👥 Приглашено напрямую: *${lvl1.rows[0].c}*\n` +
+        `💰 Всего заработано: *${totalEarned.rows[0].s} ₽*`
+      );
       return res.status(200).send('OK');
     }
 
