@@ -266,7 +266,8 @@ module.exports = async (req, res) => {
       try {
         const r = await query(
           `SELECT id, name, "displayName", balance, reputation, role, "referralCode",
-                  "loginStreak", "lastDailyBonusAt", "telegramChatId", level, experience
+                  "loginStreak", "lastDailyBonusAt", "telegramChatId", level, experience,
+                  "isBanned", "isModerator"
            FROM "User" WHERE "telegramChatId" = $1`,
           [String(chatId)]
         );
@@ -301,7 +302,14 @@ module.exports = async (req, res) => {
       };
 
       const user = await getUser(chatId);
+
+      if (user && user.isBanned) {
+        await edit('🚫 *Вы заблокированы.*\n\nОбратитесь в поддержку.', 'Markdown', { inline_keyboard: [] });
+        return res.status(200).send('OK');
+      }
+
       const isAdmin = user && user.role === 'admin';
+      const isModerator = user && (user.isModerator || user.role === 'admin');
 
       // ---- АДМИН-ПАНЕЛЬ ----
       if (data === 'admin_panel') {
@@ -353,6 +361,137 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- МОДЕРАЦИЯ ----
+      if (data === 'mod_panel') {
+        if (!isModerator) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          const openReports = await query(`SELECT COUNT(*)::int AS c FROM "Report" WHERE status='pending'`);
+          const pendingTasks = await query(`SELECT COUNT(*)::int AS c FROM "Task" WHERE status='voting'`);
+          const text = `👮 *Модератор-панель*\n\n🚨 Открытых жалоб: *${openReports.rows[0].c}*\n⏳ Заданий на модерации: *${pendingTasks.rows[0].c}*\n`;
+          await edit(text, 'Markdown', {
+            inline_keyboard: [
+              [{ text: '🚨 Открытые жалобы', callback_data: 'mod_reports' }],
+              [{ text: '⏳ Задания на модерации', callback_data: 'mod_pending' }],
+              [{ text: '🔙 Назад', callback_data: 'menu' }],
+            ],
+          });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      if (data === 'mod_reports') {
+        if (!isModerator) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          const r = await query(
+            `SELECT r.id, r."targetId", r.reason, r."createdAt", u.name AS reporter
+             FROM "Report" r JOIN "User" u ON r."reporterId" = u.id
+             WHERE r.status='pending' ORDER BY r."createdAt" DESC LIMIT 10`
+          );
+          if (r.rows.length === 0) { await edit('📭 *Открытых жалоб нет.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'mod_panel' }]] }); return res.status(200).send('OK'); }
+          let text = '🚨 *Открытые жалобы:*\n\n';
+          const buttons = [];
+          r.rows.forEach((rep) => {
+            text += `#${rep.id} — Задание #${rep.targetId}\n👤 От: ${rep.reporter}\n📝 ${rep.reason}\n\n`;
+            buttons.push([{ text: `Задание #${rep.targetId}`, callback_data: `task_${rep.targetId}` }, { text: '✅ Закрыть', callback_data: `report_resolve_${rep.id}` }]);
+          });
+          buttons.push([{ text: '🔙 Назад', callback_data: 'mod_panel' }]);
+          await edit(text, 'Markdown', { inline_keyboard: buttons });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'mod_panel' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      if (data.startsWith('report_resolve_')) {
+        const reportId = parseInt(data.split('_')[2]);
+        if (!isModerator) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          await query(`UPDATE "Report" SET status='resolved', "resolvedAt"=NOW() WHERE id=$1`, [reportId]);
+          await query(`INSERT INTO "ModeratorLog" ("moderatorId", action, "targetId", reason, "createdAt") VALUES ($1, 'resolve_report', $2, 'Жалоба обработана', NOW())`, [user.id, reportId]);
+          await edit(`✅ *Жалоба #${reportId} закрыта*`, 'Markdown', { inline_keyboard: [[{ text: '🚨 К жалобам', callback_data: 'mod_reports' }], [{ text: '🔙 Меню', callback_data: 'menu' }]] });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'mod_panel' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      if (data === 'mod_pending') {
+        if (!isModerator) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          const r = await query(`SELECT id, title, reward FROM "Task" WHERE status='voting' ORDER BY "updatedAt" DESC LIMIT 15`);
+          if (r.rows.length === 0) { await edit('📭 *Нет заданий на модерации.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'mod_panel' }]] }); return res.status(200).send('OK'); }
+          const buttons = [];
+          r.rows.forEach(t => { buttons.push([{ text: `📌 ${t.title} (${t.reward}₽)`, callback_data: `mod_task_${t.id}` }]); });
+          buttons.push([{ text: '🔙 Назад', callback_data: 'mod_panel' }]);
+          await edit('⏳ *Задания на модерации:*', 'Markdown', { inline_keyboard: buttons });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'mod_panel' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      if (data.startsWith('mod_task_')) {
+        const taskId = parseInt(data.split('_')[2]);
+        if (!isModerator) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          const r = await query(`SELECT id, title, status, "creatorId", "playerId" FROM "Task" WHERE id=$1`, [taskId]);
+          if (r.rows.length === 0) { await edit('❌ *Не найдено*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+          const t = r.rows[0];
+          await edit(
+            `👮 *Модерация задания #${t.id}*\n\n📌 ${t.title}\n📊 Статус: ${t.status}`,
+            'Markdown',
+            {
+              inline_keyboard: [
+                [{ text: '✅ Одобрить', callback_data: `mod_approve_${t.id}` }],
+                [{ text: '❌ Отклонить', callback_data: `mod_reject_${t.id}` }],
+                [{ text: '🗑 Удалить', callback_data: `mod_delete_${t.id}` }],
+                [{ text: '🔙 Назад', callback_data: `task_${t.id}` }],
+              ],
+            }
+          );
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      if (data.startsWith('mod_approve_')) {
+        const taskId = parseInt(data.split('_')[2]);
+        if (!isModerator) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          await query(`UPDATE "Task" SET status='approved' WHERE id=$1`, [taskId]);
+          await query(`INSERT INTO "ModeratorLog" ("moderatorId", action, "targetId", reason, "createdAt") VALUES ($1, 'approve_task', $2, 'Ручное одобрение', NOW())`, [user.id, taskId]);
+          await edit(`✅ *Задание #${taskId} одобрено*`, 'Markdown', { inline_keyboard: [[{ text: '👮 Ещё', callback_data: `mod_task_${taskId}` }], [{ text: '🔙 Меню', callback_data: 'menu' }]] });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      if (data.startsWith('mod_reject_')) {
+        const taskId = parseInt(data.split('_')[2]);
+        if (!isModerator) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          await query(`UPDATE "Task" SET status='rejected' WHERE id=$1`, [taskId]);
+          await query(`INSERT INTO "ModeratorLog" ("moderatorId", action, "targetId", reason, "createdAt") VALUES ($1, 'reject_task', $2, 'Ручное отклонение', NOW())`, [user.id, taskId]);
+          await edit(`❌ *Задание #${taskId} отклонено*`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      if (data.startsWith('mod_delete_')) {
+        const taskId = parseInt(data.split('_')[2]);
+        if (!isModerator) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          await query(`DELETE FROM "Task" WHERE id=$1`, [taskId]);
+          await query(`INSERT INTO "ModeratorLog" ("moderatorId", action, "targetId", reason, "createdAt") VALUES ($1, 'delete_task', $2, 'Удалено модератором', NOW())`, [user.id, taskId]);
+          await edit(`🗑 *Задание #${taskId} удалено*`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      if (data.startsWith('report_task_')) {
+        const taskId = parseInt(data.split('_')[2]);
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        userState[chatId] = { step: 'report_reason', taskId };
+        await edit(
+          '🚨 *Жалоба на задание*\n\nОпиши причину жалобы одним сообщением:\n\n_Примеры: «спам», «нарушение правил», «нецензурная лексика»_\n\n📌 Для отмены — /menu',
+          'Markdown',
+          { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'menu' }]] }
+        );
+        return res.status(200).send('OK');
+      }
+
       // ---- МЕНЮ ----
       if (data === 'menu') {
         const keyboard = [
@@ -367,6 +506,7 @@ module.exports = async (req, res) => {
           [{ text: '❓ Помощь', callback_data: 'help' }],
         ];
         if (isAdmin) keyboard.push([{ text: '⚙️ Админ-панель', callback_data: 'admin_panel' }]);
+        if (isModerator) keyboard.push([{ text: '👮 Модерация', callback_data: 'mod_panel' }]);
         await edit('🤖 *Главное меню*', 'Markdown', { inline_keyboard: keyboard });
         return res.status(200).send('OK');
       }
@@ -390,7 +530,7 @@ module.exports = async (req, res) => {
           `_${exp} / ${expForNext} XP_\n\n` +
           `💰 Баланс: ${user.balance} ₽\n` +
           `⭐ Репутация: ${user.reputation}\n` +
-          `🎮 Роль: ${user.role}\n` +
+          `🎮 Роль: ${user.role}${user.isModerator ? ' 👮' : ''}\n` +
           `🏅 Место: #${rank.rows[0].pos}\n` +
           `🔥 Streak: ${user.loginStreak} дн.`,
           'Markdown',
@@ -469,6 +609,8 @@ module.exports = async (req, res) => {
           const buttons = [];
           const isPlayer = user && user.role === 'player';
           if (t.status === 'open' && isPlayer && !t.playerId) buttons.push([{ text: '🎯 Взять задание', callback_data: `take_${t.id}` }]);
+          if (user) buttons.push([{ text: '🚨 Пожаловаться', callback_data: `report_task_${t.id}` }]);
+          if (isModerator) buttons.push([{ text: '👮 Модерация', callback_data: `mod_task_${t.id}` }]);
           buttons.push([{ text: '🔙 К списку', callback_data: 'tasks' }]);
           buttons.push([{ text: '🔙 В меню', callback_data: 'menu' }]);
           await edit(text, 'Markdown', { inline_keyboard: buttons });
@@ -579,7 +721,6 @@ module.exports = async (req, res) => {
             await notifyLevelUp(t.playerId, xpPlayer, sendMessage);
             await notifyAchievements(t.playerId, achsPlayer, sendMessage);
 
-            // Реферальные начисления (только за первое выполненное задание)
             const refEarnings = await processReferralEarnings(t.playerId, reward);
             await notifyReferralEarnings(refEarnings, sendMessage);
             
@@ -919,7 +1060,14 @@ module.exports = async (req, res) => {
     };
 
     const user = await getUser(chatId);
+
+    if (user && user.isBanned) {
+      await send('🚫 *Вы заблокированы.*');
+      return res.status(200).send('OK');
+    }
+
     const isAdmin = user && user.role === 'admin';
+    const isModerator = user && (user.isModerator || user.role === 'admin');
 
     // ---- /start /menu ----
     if (text === '/start' || text === '/menu') {
@@ -935,6 +1083,7 @@ module.exports = async (req, res) => {
         [{ text: '❓ Помощь', callback_data: 'help' }],
       ];
       if (isAdmin) keyboard.push([{ text: '⚙️ Админ-панель', callback_data: 'admin_panel' }]);
+      if (isModerator) keyboard.push([{ text: '👮 Модерация', callback_data: 'mod_panel' }]);
       await send('🤖 *Главное меню*', 'Markdown', { inline_keyboard: keyboard });
       return res.status(200).send('OK');
     }
@@ -1163,6 +1312,19 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /mod ----
+    if (text === '/mod') {
+      if (!isModerator) { await send('⛔ *Доступ запрещён.*'); return res.status(200).send('OK'); }
+      await send('👮 *Модератор-панель*', 'Markdown', {
+        inline_keyboard: [
+          [{ text: '🚨 Открытые жалобы', callback_data: 'mod_reports' }],
+          [{ text: '⏳ Задания на модерации', callback_data: 'mod_pending' }],
+          [{ text: '🔙 Меню', callback_data: 'menu' }],
+        ],
+      });
+      return res.status(200).send('OK');
+    }
+
     // ---- /help ----
     if (text === '/help') {
       await send(
@@ -1187,10 +1349,34 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
-    // ---- Пошаговое создание + поддержка ----
+    // ---- Пошаговое создание + поддержка + жалобы ----
     if (message.text && userState[chatId] && userState[chatId].step) {
       const state = userState[chatId];
       if (!user) { delete userState[chatId]; await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
+
+      if (state.step === 'report_reason') {
+        try {
+          const taskId = state.taskId;
+          await query(
+            `INSERT INTO "Report" ("reporterId", "targetType", "targetId", reason, status, "createdAt")
+             VALUES ($1, 'task', $2, $3, 'pending', NOW())`,
+            [user.id, taskId, text]
+          );
+          delete userState[chatId];
+          await send('✅ *Жалоба отправлена!*\n\nМодераторы рассмотрят её в ближайшее время.', 'Markdown', { inline_keyboard: [[{ text: '🔙 В меню', callback_data: 'menu' }]] });
+          const mods = await query(`SELECT "telegramChatId" FROM "User" WHERE "isModerator"=true OR role='admin'`);
+          for (const m of mods.rows) {
+            if (m.telegramChatId) {
+              await sendMessage(m.telegramChatId, `🚨 *Новая жалоба!*\n\nЗадание #${taskId}\n📝 ${text}`);
+            }
+          }
+        } catch (e) {
+          console.error('report_reason:', e);
+          delete userState[chatId];
+          await send('❌ *Не удалось отправить жалобу.*');
+        }
+        return res.status(200).send('OK');
+      }
 
       if (state.step === 'support_message') {
         try {
