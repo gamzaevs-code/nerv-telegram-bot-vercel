@@ -1,19 +1,15 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { Pool } = require('pg');
 
-// Временное хранилище для диалогов (создание задания)
-const userState = {};
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
-// Универсальная функция отправки сообщений в Telegram
-async function sendTelegramMessage(chatId, text, token, parse_mode = 'Markdown', reply_markup = null) {
-  const payload = { chat_id: chatId, text, parse_mode };
-  if (reply_markup) payload.reply_markup = reply_markup;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+async function query(sql, params = []) {
+  return pool.query(sql, params);
 }
+
+const userState = {};
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(200).send('OK');
@@ -23,151 +19,106 @@ module.exports = async (req, res) => {
     const token = process.env.BOT_TOKEN;
     if (!token) return res.status(500).send('No token');
 
-    // ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
+    const sendMessage = async (chatId, text, parse_mode = 'Markdown', reply_markup = null) => {
+      const payload = { chat_id: chatId, text, parse_mode };
+      if (reply_markup) payload.reply_markup = reply_markup;
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    };
+
     const getUser = async (chatId) => {
       try {
-        return await prisma.user.findFirst({
-          where: { telegramChatId: String(chatId) },
-          select: {
-            id: true, name: true, displayName: true, balance: true, reputation: true, role: true,
-            referralCode: true, loginStreak: true, lastDailyBonusAt: true,
-          },
-        });
-      } catch {
-        return null;
-      }
+        const r = await query(
+          `SELECT id, name, "displayName", balance, reputation, role, "referralCode", "loginStreak", "lastDailyBonusAt", "telegramChatId"
+           FROM "User" WHERE "telegramChatId" = $1`,
+          [String(chatId)]
+        );
+        return r.rows[0] || null;
+      } catch (e) { console.error('getUser:', e); return null; }
     };
 
-    const getUserById = async (userId) => {
+    const getUserById = async (id) => {
       try {
-        return await prisma.user.findUnique({
-          where: { id: userId },
-          select: { id: true, name: true, displayName: true, balance: true, reputation: true, role: true },
-        });
-      } catch {
-        return null;
-      }
+        const r = await query(
+          `SELECT id, name, "displayName", balance, reputation, role FROM "User" WHERE id = $1`,
+          [id]
+        );
+        return r.rows[0] || null;
+      } catch { return null; }
     };
 
-    // ---------- ОБРАБОТКА НАЖАТИЙ КНОПОК ----------
+    // ============ CALLBACK QUERY ============
     if (callback_query) {
-      const chatId = callback_query.message.chat.id;
+      const chatId = callback_query.message?.chat?.id || callback_query.from.id;
+      const messageId = callback_query.message?.message_id;
       const data = callback_query.data;
 
       const edit = async (text, parse_mode = 'Markdown', reply_markup = null) => {
+        const payload = { chat_id: chatId, message_id: messageId, text, parse_mode };
+        if (reply_markup) payload.reply_markup = reply_markup;
         await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            message_id: callback_query.message.message_id,
-            text,
-            parse_mode,
-            reply_markup,
-          }),
+          body: JSON.stringify(payload),
         });
       };
 
       const user = await getUser(chatId);
+      const isAdmin = user && user.role === 'admin';
 
-      // ---------- АДМИН-ПАНЕЛЬ ----------
       if (data === 'admin_panel') {
-        if (!user || user.role !== 'admin') {
-          await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-        await edit(
-          '⚙️ *Админ-панель*\n\nВыберите действие:',
-          'Markdown',
-          {
-            inline_keyboard: [
-              [{ text: '👥 Все пользователи', callback_data: 'admin_users' }],
-              [{ text: '📋 Все задания', callback_data: 'admin_tasks' }],
-              [{ text: '📊 Статистика', callback_data: 'admin_stats' }],
-              [{ text: '🔙 Назад', callback_data: 'menu' }],
-            ],
-          }
-        );
+        if (!isAdmin) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        await edit('⚙️ *Админ-панель*\n\nВыберите действие:', 'Markdown', {
+          inline_keyboard: [
+            [{ text: '👥 Все пользователи', callback_data: 'admin_users' }],
+            [{ text: '📋 Все задания', callback_data: 'admin_tasks' }],
+            [{ text: '📊 Статистика', callback_data: 'admin_stats' }],
+            [{ text: '🔙 Назад', callback_data: 'menu' }],
+          ],
+        });
         return res.status(200).send('OK');
       }
 
       if (data === 'admin_users') {
-        if (!user || user.role !== 'admin') {
-          await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        if (!isAdmin) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         try {
-          const users = await prisma.user.findMany({
-            take: 20,
-            orderBy: { createdAt: 'desc' },
-            select: { id: true, name: true, email: true, role: true, balance: true, reputation: true },
-          });
+          const r = await query(`SELECT id, name, email, role, balance, reputation FROM "User" ORDER BY "createdAt" DESC LIMIT 20`);
           let text = '👥 *Последние 20 пользователей:*\n\n';
-          users.forEach((u) => {
-            text += `🆔 ${u.id} | ${u.name} (${u.email})\n   Роль: ${u.role}, Баланс: ${u.balance}₽, Репутация: ${u.reputation}\n\n`;
-          });
+          r.rows.forEach(u => { text += `🆔 ${u.id} | ${u.name} (${u.email})\n   Роль: ${u.role}, Баланс: ${u.balance}₽, Реп: ${u.reputation}\n\n`; });
           await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
-          return res.status(200).send('OK');
-        }
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] }); }
+        return res.status(200).send('OK');
       }
 
       if (data === 'admin_tasks') {
-        if (!user || user.role !== 'admin') {
-          await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        if (!isAdmin) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         try {
-          const tasks = await prisma.task.findMany({
-            take: 20,
-            orderBy: { createdAt: 'desc' },
-            include: { creator: { select: { name: true } }, player: { select: { name: true } } },
-          });
+          const r = await query(`SELECT t.id, t.title, t.reward, t.status, u.name AS creator, p.name AS player FROM "Task" t JOIN "User" u ON t."creatorId" = u.id LEFT JOIN "User" p ON t."playerId" = p.id ORDER BY t."createdAt" DESC LIMIT 20`);
           let text = '📋 *Последние 20 заданий:*\n\n';
-          tasks.forEach((t) => {
-            text += `🆔 ${t.id} | ${t.title}\n   Награда: ${t.reward}₽, Статус: ${t.status}\n   Создатель: ${t.creator.name}\n`;
-            if (t.player) text += `   Игрок: ${t.player.name}\n`;
-            text += '\n';
-          });
+          r.rows.forEach(t => { text += `🆔 ${t.id} | ${t.title}\n   Награда: ${t.reward}₽, Статус: ${t.status}\n   Создатель: ${t.creator}\n`; if (t.player) text += `   Игрок: ${t.player}\n`; text += '\n'; });
           await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
-          return res.status(200).send('OK');
-        }
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] }); }
+        return res.status(200).send('OK');
       }
 
       if (data === 'admin_stats') {
-        if (!user || user.role !== 'admin') {
-          await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        if (!isAdmin) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         try {
-          const totalUsers = await prisma.user.count();
-          const totalTasks = await prisma.task.count();
-          const totalVotes = await prisma.vote.count();
-          const totalTransactions = await prisma.transaction.count();
-          const totalBalance = await prisma.user.aggregate({ _sum: { balance: true } });
-          const text =
-            `📊 *Статистика платформы:*\n\n` +
-            `👥 Всего пользователей: ${totalUsers}\n` +
-            `📋 Всего заданий: ${totalTasks}\n` +
-            `🗳️ Всего голосов: ${totalVotes}\n` +
-            `💳 Всего транзакций: ${totalTransactions}\n` +
-            `💰 Общий баланс: ${totalBalance._sum.balance || 0} ₽`;
+          const u = await query('SELECT COUNT(*)::int AS c FROM "User"');
+          const t = await query('SELECT COUNT(*)::int AS c FROM "Task"');
+          const v = await query('SELECT COUNT(*)::int AS c FROM "Vote"');
+          const tr = await query('SELECT COUNT(*)::int AS c FROM "Transaction"');
+          const b = await query('SELECT COALESCE(SUM(balance),0)::bigint AS s FROM "User"');
+          const text = `📊 *Статистика:*\n\n👥 Пользователей: ${u.rows[0].c}\n📋 Заданий: ${t.rows[0].c}\n🗳️ Голосов: ${v.rows[0].c}\n💳 Транзакций: ${tr.rows[0].c}\n💰 Общий баланс: ${b.rows[0].s} ₽`;
           await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] });
-          return res.status(200).send('OK');
-        }
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'admin_panel' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- МЕНЮ ----------
       if (data === 'menu') {
-        const isAdmin = user && user.role === 'admin';
         const keyboard = [
           [{ text: '📊 Профиль', callback_data: 'profile' }],
           [{ text: '📋 Задания', callback_data: 'tasks' }],
@@ -185,600 +136,219 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
-      // ---------- ПРОФИЛЬ (свой) ----------
       if (data === 'profile') {
-        if (!user) {
-          await edit('❌ *Ты не привязан.* Используй /link your@email.com', 'Markdown', {
-            inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
-          });
-          return res.status(200).send('OK');
-        }
-        await edit(
-          `👤 *${user.displayName || user.name}*\n\n💰 Баланс: ${user.balance} ₽\n⭐ Репутация: ${user.reputation}\n🎮 Роль: ${user.role}`,
-          'Markdown',
-          { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
-        );
+        if (!user) { await edit('❌ *Не привязан.* /link your@email.com', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        await edit(`👤 *${user.displayName || user.name}*\n\n💰 Баланс: ${user.balance} ₽\n⭐ Репутация: ${user.reputation}\n🎮 Роль: ${user.role}`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
       }
 
-      // ---------- ЗАДАНИЯ ----------
       if (data === 'tasks') {
         try {
-          const tasks = await prisma.task.findMany({
-            where: { status: { in: ['open', 'voting'] } },
-            take: 10,
-            orderBy: { createdAt: 'desc' },
-            include: { creator: { select: { name: true } }, player: { select: { name: true } } },
-          });
-          if (tasks.length === 0) {
-            await edit('📭 *Нет доступных заданий.*', 'Markdown', {
-              inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
-            });
-            return res.status(200).send('OK');
-          }
-
+          const r = await query(`SELECT id, title, reward, status, "playerId" FROM "Task" WHERE status IN ('open','voting') ORDER BY "createdAt" DESC LIMIT 10`);
+          if (r.rows.length === 0) { await edit('📭 *Нет доступных заданий.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
           const isPlayer = user && user.role === 'player';
-          const isAdmin = user && user.role === 'admin';
-
           const buttons = [];
-          tasks.forEach((t) => {
+          r.rows.forEach(t => {
             const row = [{ text: `📌 ${t.title} (${t.reward}₽)`, callback_data: `task_${t.id}` }];
-            if (t.status === 'open' && isPlayer && !t.playerId) {
-              row.push({ text: '🎯 Взять', callback_data: `take_${t.id}` });
-            }
+            if (t.status === 'open' && isPlayer && !t.playerId) row.push({ text: '🎯 Взять', callback_data: `take_${t.id}` });
             if (t.status === 'voting') {
               row.push({ text: '✅ За', callback_data: `vote_${t.id}_approve` });
               row.push({ text: '❌ Против', callback_data: `vote_${t.id}_reject` });
             }
-            if (isAdmin) {
-              row.push({ text: '⚙️', callback_data: `admin_edit_${t.id}` });
-            }
             buttons.push(row);
           });
           buttons.push([{ text: '🔙 Назад', callback_data: 'menu' }]);
-
           await edit('📋 *Доступные задания:*', 'Markdown', { inline_keyboard: buttons });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- ПРОСМОТР ЗАДАНИЯ ----------
       if (data.startsWith('task_')) {
         const taskId = parseInt(data.split('_')[1]);
-        if (isNaN(taskId)) {
-          await edit('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
         try {
-          const task = await prisma.task.findUnique({
-            where: { id: taskId },
-            include: { creator: { select: { name: true } }, player: { select: { name: true } } },
-          });
-          if (!task) {
-            await edit('❌ *Задание не найдено*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-            return res.status(200).send('OK');
-          }
-          let text = `📌 *${task.title}*\n\n`;
-          text += `📝 ${task.description || 'Без описания'}\n`;
-          text += `💰 Награда: ${task.reward} ₽\n`;
-          text += `👤 Создатель: ${task.creator.name}\n`;
-          text += `📌 Статус: ${task.status}\n`;
-          if (task.player) text += `🎮 Игрок: ${task.player.name}\n`;
-          if (task.videoUrl) text += `🎬 Видео загружено\n`;
-          await edit(text, 'Markdown', {
-            inline_keyboard: [
-              [{ text: '🔙 К списку', callback_data: 'tasks' }],
-              [{ text: '🔙 В меню', callback_data: 'menu' }],
-            ],
-          });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
+          const r = await query(`SELECT t.*, u.name AS creator, p.name AS player FROM "Task" t JOIN "User" u ON t."creatorId" = u.id LEFT JOIN "User" p ON t."playerId" = p.id WHERE t.id = $1`, [taskId]);
+          if (r.rows.length === 0) { await edit('❌ *Не найдено*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
+          const t = r.rows[0];
+          let text = `📌 *${t.title}*\n\n📝 ${t.description || 'Без описания'}\n💰 Награда: ${t.reward} ₽\n👤 Создатель: ${t.creator}\n📌 Статус: ${t.status}\n`;
+          if (t.player) text += `🎮 Игрок: ${t.player}\n`;
+          if (t.videoUrl) text += `🎬 Видео загружено\n`;
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- ВЗЯТИЕ ЗАДАНИЯ ----------
       if (data.startsWith('take_')) {
         const taskId = parseInt(data.split('_')[1]);
-        if (isNaN(taskId)) {
-          await edit('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
-        if (user.role !== 'player') {
-          await edit('❌ *Только игроки могут брать задания*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
-
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
+        if (user.role !== 'player') { await edit('❌ *Только игроки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
         try {
-          const updated = await prisma.task.updateMany({
-            where: { id: taskId, status: 'open', playerId: null },
-            data: { status: 'taken', playerId: user.id },
-          });
-          if (updated.count === 0) {
-            await edit('❌ *Задание уже взято*', 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] });
-            return res.status(200).send('OK');
-          }
-          const task = await prisma.task.findUnique({ where: { id: taskId }, include: { creator: { select: { telegramChatId: true } } } });
-          await edit(
-            `✅ *Задание взято!*\n\n📌 ${task.title}\n💰 ${task.reward} ₽\n\nЗагрузи видео в этот чат.`,
-            'Markdown',
-            { inline_keyboard: [[{ text: '📋 Мои задания', callback_data: 'my_tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] }
-          );
-          if (task.creator.telegramChatId) {
-            await sendTelegramMessage(task.creator.telegramChatId, `🎯 *Задание взято!*\n\n📌 ${task.title}\n👤 Игрок: ${user.displayName || user.name}`, token);
-          }
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
+          const r = await query(`UPDATE "Task" SET status='taken', "playerId"=$1 WHERE id=$2 AND status='open' AND "playerId" IS NULL RETURNING *`, [user.id, taskId]);
+          if (r.rowCount === 0) { await edit('❌ *Уже взято*', 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
+          const t = r.rows[0];
+          await edit(`✅ *Задание взято!*\n\n📌 ${t.title}\n💰 ${t.reward} ₽\n\nЗагрузи видео в этот чат.`, 'Markdown', { inline_keyboard: [[{ text: '📋 Мои задания', callback_data: 'my_tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] });
+          const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
+          if (cr.rows[0]?.telegramChatId) await sendMessage(cr.rows[0].telegramChatId, `🎯 *Задание взято!*\n📌 ${t.title}\n👤 ${user.displayName || user.name}`);
+        } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- ГОЛОСОВАНИЕ ----------
       if (data.startsWith('vote_')) {
         const parts = data.split('_');
         const taskId = parseInt(parts[1]);
         const value = parts[2];
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
-
-        const existing = await prisma.vote.findUnique({
-          where: { taskId_voterId: { taskId, voterId: user.id } },
-        });
-        if (existing) {
-          await edit('❌ *Ты уже голосовал*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
-
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
         try {
-          await prisma.vote.create({
-            data: { taskId, voterId: user.id, value },
-          });
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { reputation: { increment: 1 } },
-          });
-
-          const votes = await prisma.vote.groupBy({
-            by: ['value'],
-            where: { taskId },
-            _count: true,
-          });
-          const approveCount = votes.find(v => v.value === 'approve')?._count || 0;
-          const rejectCount = votes.find(v => v.value === 'reject')?._count || 0;
-
-          await edit(
-            `✅ *Голос принят!*\n\nЗа: ${approveCount}\nПротив: ${rejectCount}`,
-            'Markdown',
-            { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] }
-          );
-
-          if (approveCount >= 5) {
-            const task = await prisma.task.update({
-              where: { id: taskId },
-              data: { status: 'approved' },
-            });
-            await prisma.user.update({
-              where: { id: task.playerId },
-              data: { balance: { increment: task.reward }, completedTasksCount: { increment: 1 } },
-            });
-            await prisma.transaction.create({
-              data: {
-                userId: task.playerId,
-                type: 'reward',
-                amount: task.reward,
-                status: 'completed',
-                reason: `Выполнение "${task.title}"`,
-              },
-            });
-            const player = await prisma.user.findUnique({ where: { id: task.playerId }, select: { telegramChatId: true } });
-            if (player && player.telegramChatId) {
-              await sendTelegramMessage(player.telegramChatId, `🎉 *Задание выполнено!*\n📌 ${task.title}\n💰 +${task.reward} ₽`, token);
-            }
-            const creator = await prisma.user.findUnique({ where: { id: task.creatorId }, select: { telegramChatId: true } });
-            if (creator && creator.telegramChatId) {
-              await sendTelegramMessage(creator.telegramChatId, `✅ *Задание "${task.title}" выполнено!*`, token);
-            }
+          const ex = await query('SELECT id FROM "Vote" WHERE "taskId"=$1 AND "voterId"=$2', [taskId, user.id]);
+          if (ex.rows.length > 0) { await edit('❌ *Ты уже голосовал*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
+          await query('INSERT INTO "Vote" ("taskId","voterId",value,"createdAt") VALUES ($1,$2,$3,NOW())', [taskId, user.id, value]);
+          await query('UPDATE "User" SET reputation = reputation + 1 WHERE id = $1', [user.id]);
+          const vr = await query('SELECT value, COUNT(*)::int AS cnt FROM "Vote" WHERE "taskId"=$1 GROUP BY value', [taskId]);
+          const approve = vr.rows.find(x => x.value === 'approve')?.cnt || 0;
+          const reject = vr.rows.find(x => x.value === 'reject')?.cnt || 0;
+          await edit(`✅ *Голос принят!*\n\nЗа: ${approve}\nПротив: ${reject}`, 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] });
+          if (approve >= 5) {
+            const tr = await query(`UPDATE "Task" SET status='approved' WHERE id=$1 RETURNING *`, [taskId]);
+            const t = tr.rows[0];
+            await query('UPDATE "User" SET balance = balance + $1, "completedTasksCount" = "completedTasksCount" + 1 WHERE id=$2', [t.reward, t.playerId]);
+            await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'reward',$2,'completed',$3,NOW())`, [t.playerId, t.reward, `Выполнение "${t.title}"`]);
+            const pl = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.playerId]);
+            if (pl.rows[0]?.telegramChatId) await sendMessage(pl.rows[0].telegramChatId, `🎉 *Задание выполнено!*\n📌 ${t.title}\n💰 +${t.reward} ₽`);
+            const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
+            if (cr.rows[0]?.telegramChatId) await sendMessage(cr.rows[0].telegramChatId, `✅ *Задание "${t.title}" выполнено!*`);
           }
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка голосования*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] });
-          return res.status(200).send('OK');
-        }
+        } catch (e) { console.error(e); await edit('❌ *Ошибка голосования*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- МОИ ЗАДАНИЯ ----------
       if (data === 'my_tasks') {
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         try {
-          const tasks = await prisma.task.findMany({
-            where: { playerId: user.id, status: { in: ['taken', 'voting', 'approved', 'rejected'] } },
-            orderBy: { updatedAt: 'desc' },
-            include: { creator: { select: { name: true } } },
-          });
-          if (tasks.length === 0) {
-            await edit('📭 *У тебя нет заданий.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-            return res.status(200).send('OK');
-          }
+          const r = await query(`SELECT t.id, t.title, t.reward, t.status, u.name AS creator FROM "Task" t JOIN "User" u ON t."creatorId" = u.id WHERE t."playerId"=$1 ORDER BY t."updatedAt" DESC`, [user.id]);
+          if (r.rows.length === 0) { await edit('📭 *У тебя нет заданий.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
           let text = '📋 *Твои задания:*\n\n';
-          tasks.forEach((t, i) => {
-            text += `${i+1}. *${t.title}*\n   💰 ${t.reward} ₽\n   Статус: ${t.status}\n   👤 Создатель: ${t.creator.name}\n\n`;
-          });
+          r.rows.forEach((t, i) => { text += `${i + 1}. *${t.title}*\n   💰 ${t.reward} ₽\n   Статус: ${t.status}\n   👤 ${t.creator}\n\n`; });
           await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- КОШЕЛЁК ----------
       if (data === 'wallet') {
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         try {
-          const transactions = await prisma.transaction.findMany({
-            where: { userId: user.id },
-            orderBy: { createdAt: 'desc' },
-            take: 5,
-          });
+          const r = await query('SELECT "createdAt", amount, reason FROM "Transaction" WHERE "userId"=$1 ORDER BY "createdAt" DESC LIMIT 5', [user.id]);
           let text = `💳 *Кошелёк*\n\n💰 Баланс: ${user.balance} ₽\n\n📊 *Последние транзакции:*\n`;
-          if (transactions.length === 0) {
-            text += 'Нет транзакций.';
-          } else {
-            transactions.forEach((t) => {
-              const sign = t.amount > 0 ? '+' : '';
-              text += `${t.createdAt.toLocaleDateString()} ${sign}${t.amount} ₽ — ${t.reason}\n`;
-            });
-          }
-          await edit(text, 'Markdown', {
-            inline_keyboard: [
-              [{ text: '📈 Полная история', callback_data: 'transactions' }],
-              [{ text: '🔙 Назад', callback_data: 'menu' }],
-            ],
-          });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+          if (r.rows.length === 0) text += 'Нет транзакций.';
+          else r.rows.forEach(t => { text += `${new Date(t.createdAt).toLocaleDateString()} ${t.amount > 0 ? '+' : ''}${t.amount} ₽ — ${t.reason}\n`; });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '📈 Полная история', callback_data: 'transactions' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- ВСЕ ТРАНЗАКЦИИ ----------
       if (data === 'transactions') {
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         try {
-          const transactions = await prisma.transaction.findMany({
-            where: { userId: user.id },
-            orderBy: { createdAt: 'desc' },
-            take: 20,
-          });
+          const r = await query('SELECT "createdAt", amount, reason FROM "Transaction" WHERE "userId"=$1 ORDER BY "createdAt" DESC LIMIT 20', [user.id]);
           let text = '📊 *История транзакций:*\n\n';
-          if (transactions.length === 0) {
-            text += 'Нет транзакций.';
-          } else {
-            transactions.forEach((t) => {
-              const sign = t.amount > 0 ? '+' : '';
-              text += `${t.createdAt.toLocaleDateString()} ${sign}${t.amount} ₽ — ${t.reason}\n`;
-            });
-          }
+          if (r.rows.length === 0) text += 'Нет транзакций.';
+          else r.rows.forEach(t => { text += `${new Date(t.createdAt).toLocaleDateString()} ${t.amount > 0 ? '+' : ''}${t.amount} ₽ — ${t.reason}\n`; });
           await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'wallet' }]] });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'wallet' }]] });
-          return res.status(200).send('OK');
-        }
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'wallet' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- РЕЙТИНГ ----------
       if (data === 'leaderboard') {
         try {
-          const users = await prisma.user.findMany({
-            orderBy: { reputation: 'desc' },
-            take: 10,
-            select: { name: true, displayName: true, reputation: true, balance: true },
-          });
+          const r = await query('SELECT name, "displayName", reputation, balance FROM "User" ORDER BY reputation DESC LIMIT 10');
           let text = '🏆 *Топ по репутации:*\n\n';
-          users.forEach((u, i) => {
-            const display = u.displayName || u.name;
-            text += `${i+1}. ${display} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`;
-          });
-          await edit(text, 'Markdown', {
-            inline_keyboard: [
-              [{ text: '💰 По балансу', callback_data: 'leaderboard_balance' }],
-              [{ text: '🔙 Назад', callback_data: 'menu' }],
-            ],
-          });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+          r.rows.forEach((u, i) => { text += `${i + 1}. ${u.displayName || u.name} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`; });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '💰 По балансу', callback_data: 'leaderboard_balance' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
       }
 
       if (data === 'leaderboard_balance') {
         try {
-          const users = await prisma.user.findMany({
-            orderBy: { balance: 'desc' },
-            take: 10,
-            select: { name: true, displayName: true, reputation: true, balance: true },
-          });
+          const r = await query('SELECT name, "displayName", reputation, balance FROM "User" ORDER BY balance DESC LIMIT 10');
           let text = '💰 *Топ по балансу:*\n\n';
-          users.forEach((u, i) => {
-            const display = u.displayName || u.name;
-            text += `${i+1}. ${display} — 💰 ${u.balance}₽ (⭐ ${u.reputation})\n`;
-          });
-          await edit(text, 'Markdown', {
-            inline_keyboard: [
-              [{ text: '⭐ По репутации', callback_data: 'leaderboard' }],
-              [{ text: '🔙 Назад', callback_data: 'menu' }],
-            ],
-          });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+          r.rows.forEach((u, i) => { text += `${i + 1}. ${u.displayName || u.name} — 💰 ${u.balance}₽ (⭐ ${u.reputation})\n`; });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '⭐ По репутации', callback_data: 'leaderboard' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
       }
 
-      // ---------- ЕЖЕДНЕВНЫЙ БОНУС ----------
       if (data === 'daily') {
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         const now = new Date();
-        const lastBonus = user.lastDailyBonusAt;
-        const hoursSince = lastBonus ? (now - lastBonus) / (1000 * 60 * 60) : 24;
-        if (hoursSince < 24) {
-          const hoursLeft = Math.ceil(24 - hoursSince);
-          await edit(`⏳ *Бонус уже получен.*\nСледующий через ${hoursLeft} ч.`, 'Markdown', {
-            inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
-          });
-          return res.status(200).send('OK');
-        }
+        const last = user.lastDailyBonusAt ? new Date(user.lastDailyBonusAt) : null;
+        const hoursSince = last ? (now - last) / (1000 * 60 * 60) : 24;
+        if (hoursSince < 24) { await edit(`⏳ *Бонус уже получен.*\nСледующий через ${Math.ceil(24 - hoursSince)} ч.`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         const bonus = 10;
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            balance: { increment: bonus },
-            loginStreak: { increment: 1 },
-            lastDailyBonusAt: now,
-          },
-        });
-        await prisma.transaction.create({
-          data: {
-            userId: user.id,
-            type: 'daily_bonus',
-            amount: bonus,
-            status: 'completed',
-            reason: 'Ежедневный бонус',
-          },
-        });
-        await edit(`🎁 *Бонус получен!*\n+${bonus} ₽\nБаланс: ${user.balance + bonus} ₽`, 'Markdown', {
-          inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
-        });
+        await query('UPDATE "User" SET balance = balance + $1, "loginStreak" = "loginStreak" + 1, "lastDailyBonusAt" = NOW() WHERE id=$2', [bonus, user.id]);
+        await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'daily_bonus',$2,'completed','Ежедневный бонус',NOW())`, [user.id, bonus]);
+        await edit(`🎁 *Бонус получен!*\n+${bonus} ₽\nБаланс: ${user.balance + bonus} ₽`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
       }
 
-      // ---------- РЕФЕРАЛЬНАЯ СИСТЕМА ----------
       if (data === 'referral') {
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-        let referralCode = user.referralCode;
-        if (!referralCode) {
-          const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { referralCode: code },
-          });
-          referralCode = code;
-        }
-        const invited = await prisma.user.count({ where: { referredBy: user.id } });
-        await edit(
-          `🔗 *Реферальная система*\n\nВаш код: *${referralCode}*\n` +
-          `Ссылка: [https://nerv.vercel.app/signup?ref=${referralCode}](https://nerv.vercel.app/signup?ref=${referralCode})\n\n` +
-          `👥 Приглашено: ${invited}\n` +
-          `💰 Вы получите 50 ₽ за каждого нового пользователя.`,
-          'Markdown',
-          { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
-        );
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        let code = user.referralCode;
+        if (!code) { code = Math.random().toString(36).substring(2, 8).toUpperCase(); await query('UPDATE "User" SET "referralCode"=$1 WHERE id=$2', [code, user.id]); }
+        const inv = await query('SELECT COUNT(*)::int AS cnt FROM "User" WHERE "referredBy"=$1', [user.id]);
+        await edit(`🔗 *Рефералы*\n\nВаш код: *${code}*\nСсылка: https://nerv.vercel.app/signup?ref=${code}\n\n👥 Приглашено: ${inv.rows[0].cnt}\n💰 50 ₽ за каждого.`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
       }
 
-      // ---------- ПОИСК ИГРОКОВ (меню) ----------
       if (data === 'players_menu') {
-        await edit(
-          '👥 *Поиск игроков*\n\nВведите имя или ник для поиска.\nНапример: `/search Сергей`',
-          'Markdown',
-          { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
-        );
+        await edit('👥 *Поиск игроков*\n\nНапиши `/search Имя` для поиска.', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
       }
 
-      // ---------- ПРОСМОТР ПРОФИЛЯ ДРУГОГО ИГРОКА (из поиска) ----------
-      if (data.startsWith('view_profile_')) {
-        const targetId = parseInt(data.split('_')[2]);
-        if (isNaN(targetId)) {
-          await edit('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-        const target = await getUserById(targetId);
-        if (!target) {
-          await edit('❌ *Игрок не найден*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-        let text = `👤 *${target.displayName || target.name}*\n\n`;
-        text += `⭐ Репутация: ${target.reputation}\n`;
-        text += `🎮 Роль: ${target.role}\n`;
-        text += `\n💬 Написать: /msg ${target.id} <текст>`;
-        await edit(text, 'Markdown', {
-          inline_keyboard: [
-            [{ text: '💬 Написать', callback_data: `msg_${target.id}` }],
-            [{ text: '🔙 Назад', callback_data: 'players_menu' }],
-          ],
-        });
-        return res.status(200).send('OK');
-      }
-
-      // ---------- ОТКРЫТЬ ЧАТ С ПОЛЬЗОВАТЕЛЕМ ----------
       if (data.startsWith('msg_')) {
-        const targetId = parseInt(data.split('_')[1]);
-        if (isNaN(targetId)) {
-          await edit('❌ *Некорректный ID*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-        const target = await getUserById(targetId);
-        if (!target) {
-          await edit('❌ *Игрок не найден*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-        await edit(
-          `💬 *Чат с ${target.displayName || target.name}*\n\nНапишите сообщение, бот перешлёт его.\nИспользуйте:\n/msg ${target.id} <текст>`,
-          'Markdown',
-          { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'players_menu' }]] }
-        );
+        const id = parseInt(data.split('_')[1]);
+        const target = await getUserById(id);
+        if (!target) { await edit('❌ *Не найден*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        await edit(`💬 *Чат с ${target.displayName || target.name}*\n\nИспользуй: /msg ${target.id} <текст>`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'players_menu' }]] });
         return res.status(200).send('OK');
       }
 
-      // ---------- ВХОДЯЩИЕ СООБЩЕНИЯ ----------
       if (data === 'inbox') {
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-        try {
-          const messages = await prisma.message.findMany({
-            where: { toUserId: user.id, isRead: false },
-            orderBy: { createdAt: 'desc' },
-            include: { fromUser: { select: { name: true, displayName: true } } },
-          });
-          if (messages.length === 0) {
-            await edit('📭 *Новых сообщений нет.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-            return res.status(200).send('OK');
-          }
-          let text = '💬 *Новые сообщения:*\n\n';
-          messages.forEach((msg) => {
-            const fromName = msg.fromUser.displayName || msg.fromUser.name;
-            text += `👤 ${fromName}: ${msg.text}\n`;
-            text += `   [Ответить](/msg ${msg.fromUserId} ...)\n\n`;
-          });
-          // Отмечаем прочитанными
-          await prisma.message.updateMany({
-            where: { toUserId: user.id, isRead: false },
-            data: { isRead: true },
-          });
-          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        } catch {
-          await edit('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-      }
-
-      // ---------- ПОМОЩЬ ----------
-      if (data === 'help') {
-        await edit(
-          '📖 *Помощь*\n\n/start — Главное меню\n/link email — Привязать аккаунт\n/profile — Мой профиль\n/tasks — Задания\n/wallet — Кошелёк\n/leaderboard — Рейтинг\n/daily — Бонус\n/referral — Рефералы\n/search <имя> — Поиск игроков\n/profile <id> — Профиль игрока\n/msg <id> <текст> — Отправить сообщение\n/inbox — Входящие\n/chat <id> — История переписки\n/delete_data — Отвязать аккаунт\n/help — Помощь',
-          'Markdown',
-          { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
-        );
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        const r = await query(`SELECT m.text, m."fromUserId", u.name, u."displayName" FROM "Message" m JOIN "User" u ON m."fromUserId"=u.id WHERE m."toUserId"=$1 AND m."isRead"=false ORDER BY m."createdAt" DESC`, [user.id]);
+        if (r.rows.length === 0) { await edit('📭 *Новых сообщений нет.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        let text = '💬 *Новые сообщения:*\n\n';
+        r.rows.forEach(m => { text += `👤 ${m.displayName || m.name}: ${m.text}\n/msg ${m.fromUserId} ...\n\n`; });
+        await query('UPDATE "Message" SET "isRead"=true WHERE "toUserId"=$1 AND "isRead"=false', [user.id]);
+        await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
       }
 
-      // ---------- СОЗДАТЬ ЗАДАНИЕ ----------
       if (data === 'create') {
-        if (!user) {
-          await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         userState[chatId] = { step: 'title' };
-        await edit(
-          '📝 *Создание задания*\n\nВведите *название*:',
-          'Markdown',
-          { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'menu' }]] }
-        );
+        await edit('📝 *Создание задания*\n\nВведите *название*:', 'Markdown', { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'menu' }]] });
+        return res.status(200).send('OK');
+      }
+
+      if (data === 'help') {
+        await edit('📖 *Помощь*\n\n/start — Меню\n/link email — Привязать\n/profile — Профиль\n/tasks — Задания\n/wallet — Кошелёк\n/leaderboard — Рейтинг\n/daily — Бонус\n/referral — Рефералы\n/search имя — Поиск\n/msg id текст — Написать\n/inbox — Входящие\n/help — Помощь', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
       }
 
       return res.status(200).send('OK');
     }
 
-    // ---------- ОБРАБОТКА ВИДЕО (ЗАГРУЗКА) ----------
-    if (message.video || message.document) {
-      const chatId = message.chat.id;
-      const user = await prisma.user.findFirst({
-        where: { telegramChatId: String(chatId) },
-        select: { id: true, role: true },
-      });
-      if (!user || user.role !== 'player') {
-        await sendTelegramMessage(chatId, '❌ *Только игроки могут загружать видео.*', token);
-        return res.status(200).send('OK');
-      }
-
-      const task = await prisma.task.findFirst({
-        where: { playerId: user.id, status: 'taken' },
-        orderBy: { updatedAt: 'desc' },
-        include: { creator: { select: { telegramChatId: true } } },
-      });
-      if (!task) {
-        await sendTelegramMessage(chatId, '❌ *У тебя нет активных заданий.*', token);
-        return res.status(200).send('OK');
-      }
-
-      const fileId = message.video?.file_id || message.document?.file_id;
-      if (!fileId) {
-        await sendTelegramMessage(chatId, '❌ *Не удалось получить видео.*', token);
-        return res.status(200).send('OK');
-      }
-
-      await prisma.task.update({
-        where: { id: task.id },
-        data: { status: 'voting', videoUrl: fileId },
-      });
-
-      await sendTelegramMessage(chatId, `✅ *Видео загружено для задания:*\n\n📌 ${task.title}\n\nТеперь зрители могут голосовать.`, token);
-
-      if (task.creator.telegramChatId) {
-        await sendTelegramMessage(task.creator.telegramChatId, `🎬 *Игрок загрузил видео для задания:*\n\n📌 ${task.title}`, token);
-      }
-
-      return res.status(200).send('OK');
-    }
-
-    // ---------- ОБЫЧНЫЕ ТЕКСТОВЫЕ КОМАНДЫ ----------
+    // ============ ТЕКСТОВЫЕ СООБЩЕНИЯ ============
     const chatId = message.chat.id;
     const text = message.text || '';
 
     const send = async (msg, parse_mode = 'Markdown', reply_markup = null) => {
-      await sendTelegramMessage(chatId, msg, token, parse_mode, reply_markup);
+      await sendMessage(chatId, msg, parse_mode, reply_markup);
     };
 
     const user = await getUser(chatId);
+    const isAdmin = user && user.role === 'admin';
 
-    // ---- /start /menu ----
     if (text === '/start' || text === '/menu') {
-      const isAdmin = user && user.role === 'admin';
       const keyboard = [
         [{ text: '📊 Профиль', callback_data: 'profile' }],
         [{ text: '📋 Задания', callback_data: 'tasks' }],
@@ -796,512 +366,182 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
-    // ---- /profile (свой) ----
-    if (text === '/profile') {
-      if (!user) {
-        await send('❌ *Ты не привязан.* Используй /link your@email.com', 'Markdown', {
-          inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]],
-        });
-        return res.status(200).send('OK');
-      }
-      await send(
-        `👤 *${user.displayName || user.name}*\n\n💰 ${user.balance} ₽\n⭐ ${user.reputation}\n🎮 ${user.role}`,
-        'Markdown',
-        { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
-      );
+    if (text.startsWith('/link ')) {
+      const email = text.replace('/link ', '').trim().toLowerCase();
+      if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) { await send('❌ *Неверный email*'); return res.status(200).send('OK'); }
+      try {
+        const r = await query('SELECT id, name FROM "User" WHERE email=$1', [email]);
+        if (r.rows.length === 0) { await send('❌ *Пользователь не найден.*'); return res.status(200).send('OK'); }
+        const u = r.rows[0];
+        await query('UPDATE "User" SET "telegramChatId"=$1, "telegramLinked"=true WHERE id=$2', [String(chatId), u.id]);
+        await send(`✅ *Аккаунт привязан!*\n👤 ${u.name}`, 'Markdown', { inline_keyboard: [[{ text: '📊 Профиль', callback_data: 'profile' }]] });
+      } catch (e) { console.error(e); await send('❌ *Ошибка привязки*'); }
       return res.status(200).send('OK');
     }
 
-    // ---- /tasks ----
+    if (text === '/link') { await send('⚠️ *Укажи email:* `/link your@email.com`'); return res.status(200).send('OK'); }
+
+    if (text === '/profile') {
+      if (!user) { await send('❌ *Не привязан.* /link your@email.com'); return res.status(200).send('OK'); }
+      await send(`👤 *${user.displayName || user.name}*\n\n💰 ${user.balance} ₽\n⭐ ${user.reputation}\n🎮 ${user.role}`);
+      return res.status(200).send('OK');
+    }
+
+    if (text.startsWith('/profile ')) {
+      const id = parseInt(text.replace('/profile ', '').trim());
+      if (isNaN(id)) { await send('❌ *Неверный ID*'); return res.status(200).send('OK'); }
+      const target = await getUserById(id);
+      if (!target) { await send('❌ *Не найден*'); return res.status(200).send('OK'); }
+      await send(`👤 *${target.displayName || target.name}*\n\n⭐ ${target.reputation}\n🎮 ${target.role}\n\n💬 /msg ${target.id} <текст>`);
+      return res.status(200).send('OK');
+    }
+
     if (text === '/tasks') {
       try {
-        const tasks = await prisma.task.findMany({
-          where: { status: { in: ['open', 'voting'] } },
-          take: 10,
-          orderBy: { createdAt: 'desc' },
-          include: { creator: { select: { name: true } }, player: { select: { name: true } } },
-        });
-        if (tasks.length === 0) {
-          await send('📭 *Нет доступных заданий.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-          return res.status(200).send('OK');
-        }
-
+        const r = await query(`SELECT id, title, reward, status, "playerId" FROM "Task" WHERE status IN ('open','voting') ORDER BY "createdAt" DESC LIMIT 10`);
+        if (r.rows.length === 0) { await send('📭 *Нет заданий.*'); return res.status(200).send('OK'); }
         const isPlayer = user && user.role === 'player';
-        const isAdmin = user && user.role === 'admin';
-
         const buttons = [];
-        tasks.forEach((t) => {
+        r.rows.forEach(t => {
           const row = [{ text: `📌 ${t.title} (${t.reward}₽)`, callback_data: `task_${t.id}` }];
-          if (t.status === 'open' && isPlayer && !t.playerId) {
-            row.push({ text: '🎯 Взять', callback_data: `take_${t.id}` });
-          }
+          if (t.status === 'open' && isPlayer && !t.playerId) row.push({ text: '🎯 Взять', callback_data: `take_${t.id}` });
           if (t.status === 'voting') {
             row.push({ text: '✅ За', callback_data: `vote_${t.id}_approve` });
             row.push({ text: '❌ Против', callback_data: `vote_${t.id}_reject` });
           }
-          if (isAdmin) {
-            row.push({ text: '⚙️', callback_data: `admin_edit_${t.id}` });
-          }
           buttons.push(row);
         });
         buttons.push([{ text: '🔙 Назад', callback_data: 'menu' }]);
-        await send('📋 *Доступные задания:*', 'Markdown', { inline_keyboard: buttons });
-        return res.status(200).send('OK');
-      } catch {
-        await send('❌ *Ошибка загрузки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-        return res.status(200).send('OK');
-      }
-    }
-
-    // ---- /link ----
-    if (text.startsWith('/link ')) {
-      const email = text.replace('/link ', '').trim().toLowerCase();
-      if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) {
-        await send('❌ *Неверный email*');
-        return res.status(200).send('OK');
-      }
-      try {
-        const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
-        if (!user) {
-          await send('❌ *Пользователь не найден.*');
-          return res.status(200).send('OK');
-        }
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { telegramChatId: String(chatId) },
-        });
-        await send(`✅ *Аккаунт привязан!*\n👤 ${user.name}`, 'Markdown', {
-          inline_keyboard: [[{ text: '📊 Профиль', callback_data: 'profile' }]],
-        });
-        return res.status(200).send('OK');
-      } catch {
-        await send('❌ *Ошибка привязки*');
-        return res.status(200).send('OK');
-      }
-    }
-
-    if (text === '/link') {
-      await send('⚠️ *Укажи email:* `/link your@email.com`');
+        await send('📋 *Задания:*', 'Markdown', { inline_keyboard: buttons });
+      } catch { await send('❌ *Ошибка*'); }
       return res.status(200).send('OK');
     }
 
-    // ---- /search ----
     if (text.startsWith('/search ')) {
-      const query = text.replace('/search ', '').trim();
-      if (query.length < 2) {
-        await send('⚠️ *Введите минимум 2 символа для поиска.*');
-        return res.status(200).send('OK');
-      }
-      try {
-        const users = await prisma.user.findMany({
-          where: {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { displayName: { contains: query, mode: 'insensitive' } },
-            ],
-          },
-          take: 10,
-          select: { id: true, name: true, displayName: true, reputation: true },
-        });
-        if (users.length === 0) {
-          await send('👥 *Никто не найден.*');
-          return res.status(200).send('OK');
-        }
-        let reply = '👥 *Результаты поиска:*\n\n';
-        users.forEach((u) => {
-          const display = u.displayName || u.name;
-          reply += `• ${display} (⭐ ${u.reputation})\n   /profile ${u.id} — просмотр\n   /msg ${u.id} — написать\n\n`;
-        });
-        await send(reply, 'Markdown');
-        return res.status(200).send('OK');
-      } catch {
-        await send('❌ *Ошибка поиска*');
-        return res.status(200).send('OK');
-      }
-    }
-
-    // ---- /profile <id> (чужой профиль) ----
-    if (text.startsWith('/profile ')) {
-      const targetId = parseInt(text.replace('/profile ', '').trim());
-      if (isNaN(targetId)) {
-        await send('❌ *Укажите корректный ID*');
-        return res.status(200).send('OK');
-      }
-      const target = await getUserById(targetId);
-      if (!target) {
-        await send('❌ *Игрок не найден*');
-        return res.status(200).send('OK');
-      }
-      let reply = `👤 *${target.displayName || target.name}*\n\n`;
-      reply += `⭐ Репутация: ${target.reputation}\n`;
-      reply += `🎮 Роль: ${target.role}\n`;
-      reply += `\n💬 Написать: /msg ${target.id} <текст>`;
-      await send(reply, 'Markdown');
+      const q = text.replace('/search ', '').trim();
+      if (q.length < 2) { await send('⚠️ *Минимум 2 символа*'); return res.status(200).send('OK'); }
+      const r = await query(`SELECT id, name, "displayName", reputation FROM "User" WHERE name ILIKE $1 OR "displayName" ILIKE $1 LIMIT 10`, [`%${q}%`]);
+      if (r.rows.length === 0) { await send('👥 *Никто не найден*'); return res.status(200).send('OK'); }
+      let msg = '👥 *Найдено:*\n\n';
+      r.rows.forEach(u => { msg += `• ${u.displayName || u.name} (⭐ ${u.reputation})\n  /profile ${u.id} — профиль\n  /msg ${u.id} — написать\n\n`; });
+      await send(msg);
       return res.status(200).send('OK');
     }
 
-    // ---- /msg <id> <текст> ----
     if (text.startsWith('/msg ')) {
-      if (!user) {
-        await send('❌ *Сначала привяжи аккаунт*');
-        return res.status(200).send('OK');
-      }
+      if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
       const parts = text.split(' ');
-      if (parts.length < 3) {
-        await send('⚠️ *Формат:* `/msg <id> <сообщение>`');
-        return res.status(200).send('OK');
-      }
-      const targetId = parseInt(parts[1]);
-      if (isNaN(targetId)) {
-        await send('❌ *Некорректный ID*');
-        return res.status(200).send('OK');
-      }
+      if (parts.length < 3) { await send('⚠️ *Формат:* `/msg id текст`'); return res.status(200).send('OK'); }
+      const id = parseInt(parts[1]);
+      if (isNaN(id)) { await send('❌ *Неверный ID*'); return res.status(200).send('OK'); }
       const msgText = parts.slice(2).join(' ');
-      if (msgText.length < 1) {
-        await send('⚠️ *Сообщение не может быть пустым.*');
-        return res.status(200).send('OK');
-      }
-
-      const target = await getUserById(targetId);
-      if (!target) {
-        await send('❌ *Получатель не найден*');
-        return res.status(200).send('OK');
-      }
-      if (target.id === user.id) {
-        await send('❌ *Нельзя отправить сообщение самому себе*');
-        return res.status(200).send('OK');
-      }
-
-      try {
-        await prisma.message.create({
-          data: {
-            fromUserId: user.id,
-            toUserId: target.id,
-            text: msgText,
-          },
-        });
-
-        if (target.telegramChatId) {
-          const fromName = user.displayName || user.name;
-          await sendTelegramMessage(
-            target.telegramChatId,
-            `💬 *Новое сообщение от ${fromName}:*\n\n${msgText}\n\nЧтобы ответить, используйте /msg ${user.id} <текст>`,
-            token
-          );
-        }
-
-        await send(`✅ *Сообщение отправлено пользователю ${target.displayName || target.name}*`);
-        return res.status(200).send('OK');
-      } catch {
-        await send('❌ *Ошибка отправки*');
-        return res.status(200).send('OK');
-      }
+      const target = await getUserById(id);
+      if (!target) { await send('❌ *Получатель не найден*'); return res.status(200).send('OK'); }
+      if (target.id === user.id) { await send('❌ *Нельзя себе*'); return res.status(200).send('OK'); }
+      await query(`INSERT INTO "Message" ("fromUserId","toUserId",text,"createdAt") VALUES ($1,$2,$3,NOW())`, [user.id, target.id, msgText]);
+      await send(`✅ *Отправлено ${target.displayName || target.name}*`);
+      const tr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [target.id]);
+      if (tr.rows[0]?.telegramChatId) await sendMessage(tr.rows[0].telegramChatId, `💬 *От ${user.displayName || user.name}:*\n\n${msgText}\n\nОтветить: /msg ${user.id} <текст>`);
+      return res.status(200).send('OK');
     }
 
-    // ---- /inbox ----
     if (text === '/inbox') {
-      if (!user) {
-        await send('❌ *Сначала привяжи аккаунт*');
-        return res.status(200).send('OK');
-      }
-      try {
-        const messages = await prisma.message.findMany({
-          where: { toUserId: user.id, isRead: false },
-          orderBy: { createdAt: 'desc' },
-          include: { fromUser: { select: { name: true, displayName: true } } },
-        });
-        if (messages.length === 0) {
-          await send('📭 *Новых сообщений нет.*');
-          return res.status(200).send('OK');
-        }
-        let reply = '💬 *Новые сообщения:*\n\n';
-        messages.forEach((msg) => {
-          const fromName = msg.fromUser.displayName || msg.fromUser.name;
-          reply += `👤 ${fromName}: ${msg.text}\n`;
-          reply += `   [Ответить](/msg ${msg.fromUserId} ...)\n\n`;
-        });
-        await prisma.message.updateMany({
-          where: { toUserId: user.id, isRead: false },
-          data: { isRead: true },
-        });
-        await send(reply, 'Markdown');
-        return res.status(200).send('OK');
-      } catch {
-        await send('❌ *Ошибка загрузки*');
-        return res.status(200).send('OK');
-      }
+      if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
+      const r = await query(`SELECT m.text, m."fromUserId", u.name, u."displayName" FROM "Message" m JOIN "User" u ON m."fromUserId"=u.id WHERE m."toUserId"=$1 AND m."isRead"=false ORDER BY m."createdAt" DESC`, [user.id]);
+      if (r.rows.length === 0) { await send('📭 *Нет сообщений.*'); return res.status(200).send('OK'); }
+      let msg = '💬 *Новые сообщения:*\n\n';
+      r.rows.forEach(m => { msg += `👤 ${m.displayName || m.name}: ${m.text}\n/msg ${m.fromUserId} ...\n\n`; });
+      await query('UPDATE "Message" SET "isRead"=true WHERE "toUserId"=$1 AND "isRead"=false', [user.id]);
+      await send(msg);
+      return res.status(200).send('OK');
     }
 
-    // ---- /chat <id> ----
-    if (text.startsWith('/chat ')) {
-      if (!user) {
-        await send('❌ *Сначала привяжи аккаунт*');
-        return res.status(200).send('OK');
-      }
-      const targetId = parseInt(text.replace('/chat ', '').trim());
-      if (isNaN(targetId)) {
-        await send('❌ *Укажите корректный ID*');
-        return res.status(200).send('OK');
-      }
-      const target = await getUserById(targetId);
-      if (!target) {
-        await send('❌ *Игрок не найден*');
-        return res.status(200).send('OK');
-      }
-
-      try {
-        const messages = await prisma.message.findMany({
-          where: {
-            OR: [
-              { fromUserId: user.id, toUserId: target.id },
-              { fromUserId: target.id, toUserId: user.id },
-            ],
-          },
-          orderBy: { createdAt: 'asc' },
-          take: 50,
-          include: { fromUser: { select: { name: true, displayName: true } } },
-        });
-        if (messages.length === 0) {
-          await send('💬 *Нет сообщений с этим пользователем.*');
-          return res.status(200).send('OK');
-        }
-        let reply = `💬 *История переписки с ${target.displayName || target.name}:*\n\n`;
-        messages.forEach((msg) => {
-          const fromName = msg.fromUser.displayName || msg.fromUser.name;
-          const prefix = msg.fromUserId === user.id ? 'Вы' : fromName;
-          reply += `**${prefix}:** ${msg.text}\n`;
-        });
-        await send(reply, 'Markdown');
-        return res.status(200).send('OK');
-      } catch {
-        await send('❌ *Ошибка загрузки*');
-        return res.status(200).send('OK');
-      }
-    }
-
-    // ---- /daily ----
     if (text === '/daily') {
-      if (!user) {
-        await send('❌ *Сначала привяжи аккаунт*');
-        return res.status(200).send('OK');
-      }
+      if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
       const now = new Date();
-      const lastBonus = user.lastDailyBonusAt;
-      const hoursSince = lastBonus ? (now - lastBonus) / (1000 * 60 * 60) : 24;
-      if (hoursSince < 24) {
-        const hoursLeft = Math.ceil(24 - hoursSince);
-        await send(`⏳ *Бонус уже получен.*\nСледующий через ${hoursLeft} ч.`);
-        return res.status(200).send('OK');
-      }
+      const last = user.lastDailyBonusAt ? new Date(user.lastDailyBonusAt) : null;
+      const hoursSince = last ? (now - last) / (1000 * 60 * 60) : 24;
+      if (hoursSince < 24) { await send(`⏳ *Бонус уже получен.* Следующий через ${Math.ceil(24 - hoursSince)} ч.`); return res.status(200).send('OK'); }
       const bonus = 10;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          balance: { increment: bonus },
-          loginStreak: { increment: 1 },
-          lastDailyBonusAt: now,
-        },
-      });
-      await prisma.transaction.create({
-        data: {
-          userId: user.id,
-          type: 'daily_bonus',
-          amount: bonus,
-          status: 'completed',
-          reason: 'Ежедневный бонус',
-        },
-      });
-      await send(`🎁 *Бонус получен!*\n+${bonus} ₽\nБаланс: ${user.balance + bonus} ₽`);
+      await query('UPDATE "User" SET balance = balance + $1, "loginStreak"="loginStreak"+1, "lastDailyBonusAt"=NOW() WHERE id=$2', [bonus, user.id]);
+      await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'daily_bonus',$2,'completed','Ежедневный бонус',NOW())`, [user.id, bonus]);
+      await send(`🎁 *Бонус получен!* +${bonus} ₽\nБаланс: ${user.balance + bonus} ₽`);
       return res.status(200).send('OK');
     }
 
-    // ---- /referral ----
     if (text === '/referral') {
-      if (!user) {
-        await send('❌ *Сначала привяжи аккаунт*');
-        return res.status(200).send('OK');
-      }
-      let referralCode = user.referralCode;
-      if (!referralCode) {
-        const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { referralCode: code },
-        });
-        referralCode = code;
-      }
-      const invited = await prisma.user.count({ where: { referredBy: user.id } });
-      await send(
-        `🔗 *Реферальная система*\n\nВаш код: *${referralCode}*\n` +
-        `Ссылка: [https://nerv.vercel.app/signup?ref=${referralCode}](https://nerv.vercel.app/signup?ref=${referralCode})\n\n` +
-        `👥 Приглашено: ${invited}\n` +
-        `💰 Вы получите 50 ₽ за каждого нового пользователя.`,
-        'Markdown',
-        { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
-      );
+      if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
+      let code = user.referralCode;
+      if (!code) { code = Math.random().toString(36).substring(2, 8).toUpperCase(); await query('UPDATE "User" SET "referralCode"=$1 WHERE id=$2', [code, user.id]); }
+      const inv = await query('SELECT COUNT(*)::int AS cnt FROM "User" WHERE "referredBy"=$1', [user.id]);
+      await send(`🔗 *Рефералы*\n\nКод: *${code}*\nСсылка: https://nerv.vercel.app/signup?ref=${code}\n\n👥 Приглашено: ${inv.rows[0].cnt}`);
       return res.status(200).send('OK');
     }
 
-    // ---- /leaderboard ----
     if (text === '/leaderboard') {
-      try {
-        const users = await prisma.user.findMany({
-          orderBy: { reputation: 'desc' },
-          take: 10,
-          select: { name: true, displayName: true, reputation: true, balance: true },
-        });
-        let msg = '🏆 *Топ по репутации:*\n\n';
-        users.forEach((u, i) => {
-          const display = u.displayName || u.name;
-          msg += `${i+1}. ${display} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`;
-        });
-        await send(msg, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-        return res.status(200).send('OK');
-      } catch {
-        await send('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-        return res.status(200).send('OK');
-      }
-    }
-
-    // ---- /admin ----
-    if (text === '/admin') {
-      if (!user || user.role !== 'admin') {
-        await send('⛔ *Доступ запрещён.*');
-        return res.status(200).send('OK');
-      }
-      await send(
-        '⚙️ *Админ-панель*\n\nВыберите действие:',
-        'Markdown',
-        {
-          inline_keyboard: [
-            [{ text: '👥 Все пользователи', callback_data: 'admin_users' }],
-            [{ text: '📋 Все задания', callback_data: 'admin_tasks' }],
-            [{ text: '📊 Статистика', callback_data: 'admin_stats' }],
-            [{ text: '🔙 Назад', callback_data: 'menu' }],
-          ],
-        }
-      );
+      const r = await query('SELECT name, "displayName", reputation, balance FROM "User" ORDER BY reputation DESC LIMIT 10');
+      let msg = '🏆 *Топ:*\n\n';
+      r.rows.forEach((u, i) => { msg += `${i + 1}. ${u.displayName || u.name} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`; });
+      await send(msg);
       return res.status(200).send('OK');
     }
 
-    // ---- /delete_data ----
-    if (text === '/delete_data') {
-      try {
-        const user = await prisma.user.findFirst({
-          where: { telegramChatId: String(chatId) },
-          select: { id: true },
-        });
-        if (!user) {
-          await send('❌ *Вы не привязаны.*');
-          return res.status(200).send('OK');
-        }
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { telegramChatId: null },
-        });
-        await send('✅ *Вы отвязаны от бота.*');
-        return res.status(200).send('OK');
-      } catch {
-        await send('❌ *Ошибка*');
-        return res.status(200).send('OK');
-      }
+    if (text === '/admin') {
+      if (!isAdmin) { await send('⛔ *Доступ запрещён.*'); return res.status(200).send('OK'); }
+      await send('⚙️ *Админ-панель*', 'Markdown', {
+        inline_keyboard: [
+          [{ text: '👥 Пользователи', callback_data: 'admin_users' }],
+          [{ text: '📋 Задания', callback_data: 'admin_tasks' }],
+          [{ text: '📊 Статистика', callback_data: 'admin_stats' }],
+          [{ text: '🔙 Меню', callback_data: 'menu' }],
+        ],
+      });
+      return res.status(200).send('OK');
     }
 
-    // ---- СОЗДАНИЕ ЗАДАНИЯ (пошагово) ----
-    if (userState[chatId] && userState[chatId].step) {
+    if (text === '/delete_data') {
+      if (!user) { await send('❌ *Не привязан*'); return res.status(200).send('OK'); }
+      await query('UPDATE "User" SET "telegramChatId"=NULL, "telegramLinked"=false WHERE id=$1', [user.id]);
+      await send('✅ *Вы отвязаны от бота.*');
+      return res.status(200).send('OK');
+    }
+
+    if (message.text && userState[chatId] && userState[chatId].step) {
       const state = userState[chatId];
-      const user = await prisma.user.findFirst({
-        where: { telegramChatId: String(chatId) },
-        select: { id: true, balance: true, role: true },
-      });
-      if (!user) {
-        delete userState[chatId];
-        await send('❌ *Сначала привяжи аккаунт*');
-        return res.status(200).send('OK');
-      }
+      if (!user) { delete userState[chatId]; await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
 
-      if (state.step === 'title') {
-        state.title = text;
-        state.step = 'description';
-        await send('📝 *Введите описание:*', 'Markdown', {
-          inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'menu' }]],
-        });
-        return res.status(200).send('OK');
-      }
-
-      if (state.step === 'description') {
-        state.description = text;
-        state.step = 'reward';
-        await send('💰 *Введите награду (число, >=10):*', 'Markdown', {
-          inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'menu' }]],
-        });
-        return res.status(200).send('OK');
-      }
-
+      if (state.step === 'title') { state.title = text; state.step = 'description'; await send('📝 *Введите описание:*'); return res.status(200).send('OK'); }
+      if (state.step === 'description') { state.description = text; state.step = 'reward'; await send('💰 *Введите награду (число, >=10):*'); return res.status(200).send('OK'); }
       if (state.step === 'reward') {
         const reward = parseInt(text, 10);
-        if (isNaN(reward) || reward < 10) {
-          await send('❌ *Введите число больше 9*');
-          return res.status(200).send('OK');
-        }
-
-        if (user.role !== 'viewer' && user.role !== 'admin') {
-          await send('❌ *Только зрители и админы могут создавать задания*');
-          delete userState[chatId];
-          return res.status(200).send('OK');
-        }
-
-        if (user.balance < reward) {
-          await send(`❌ *Недостаточно средств.* Баланс: ${user.balance} ₽`);
-          delete userState[chatId];
-          return res.status(200).send('OK');
-        }
-
-        try {
-          const task = await prisma.task.create({
-            data: {
-              title: state.title,
-              description: state.description,
-              reward: reward,
-              creatorId: user.id,
-              status: 'open',
-            },
-          });
-
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { balance: { decrement: reward } },
-          });
-
-          await prisma.transaction.create({
-            data: {
-              userId: user.id,
-              type: 'task_create',
-              amount: -reward,
-              status: 'completed',
-              reason: `Создание задания "${task.title}"`,
-            },
-          });
-
-          delete userState[chatId];
-
-          await send(
-            `✅ *Задание создано!*\n\n📌 ${task.title}\n💰 ${task.reward} ₽`,
-            'Markdown',
-            { inline_keyboard: [[{ text: '📋 Задания', callback_data: 'tasks' }]] }
-          );
-          return res.status(200).send('OK');
-        } catch (error) {
-          console.error(error);
-          await send('❌ *Ошибка создания*');
-          delete userState[chatId];
-          return res.status(200).send('OK');
-        }
+        if (isNaN(reward) || reward < 10) { await send('❌ *Число больше 9*'); return res.status(200).send('OK'); }
+        if (user.role !== 'viewer' && user.role !== 'admin') { await send('❌ *Только зрители и админы*'); delete userState[chatId]; return res.status(200).send('OK'); }
+        if (user.balance < reward) { await send(`❌ *Недостаточно.* Баланс: ${user.balance} ₽`); delete userState[chatId]; return res.status(200).send('OK'); }
+        const tr = await query(`INSERT INTO "Task" (title,description,reward,status,"creatorId","createdAt","updatedAt") VALUES ($1,$2,$3,'open',$4,NOW(),NOW()) RETURNING *`, [state.title, state.description, reward, user.id]);
+        const t = tr.rows[0];
+        await query('UPDATE "User" SET balance = balance - $1 WHERE id=$2', [reward, user.id]);
+        await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'task_create',$2,'completed',$3,NOW())`, [user.id, -reward, `Создание "${t.title}"`]);
+        delete userState[chatId];
+        await send(`✅ *Создано!*\n📌 ${t.title}\n💰 ${t.reward} ₽`, 'Markdown', { inline_keyboard: [[{ text: '📋 Задания', callback_data: 'tasks' }]] });
+        return res.status(200).send('OK');
       }
     }
 
-    // ---- НЕИЗВЕСТНАЯ КОМАНДА ----
-    await send('🤔 *Неизвестная команда.* Используй /start');
+    if (message.video || message.document) {
+      if (!user || user.role !== 'player') { await send('❌ *Только игроки*'); return res.status(200).send('OK'); }
+      const tr = await query(`SELECT * FROM "Task" WHERE "playerId"=$1 AND status='taken' ORDER BY "updatedAt" DESC LIMIT 1`, [user.id]);
+      if (tr.rows.length === 0) { await send('❌ *Нет активных заданий*'); return res.status(200).send('OK'); }
+      const t = tr.rows[0];
+      const fileId = message.video?.file_id || message.document?.file_id;
+      if (!fileId) { await send('❌ *Видео не получено*'); return res.status(200).send('OK'); }
+      await query(`UPDATE "Task" SET status='voting', "videoUrl"=$1 WHERE id=$2`, [fileId, t.id]);
+      await send(`✅ *Видео загружено:*\n📌 ${t.title}\n\nЗрители могут голосовать.`);
+      const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
+      if (cr.rows[0]?.telegramChatId) await sendMessage(cr.rows[0].telegramChatId, `🎬 *Видео для:*\n📌 ${t.title}`);
+      return res.status(200).send('OK');
+    }
+
+    await send('🤔 *Неизвестная команда.* /start');
     return res.status(200).send('OK');
 
   } catch (error) {

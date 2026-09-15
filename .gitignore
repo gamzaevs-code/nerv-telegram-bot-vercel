@@ -1,4 +1,7 @@
 ﻿node_modules/
 .env
-.env.txt
-prisma/migrations/
+.env.*
+!.env.example
+.vercel
+.DS_Store
+*.log
