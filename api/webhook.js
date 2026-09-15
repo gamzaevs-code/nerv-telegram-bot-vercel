@@ -1,6 +1,7 @@
 const { query } = require('../lib/db');
 const { sendMessage, editMessageText } = require('../lib/telegram');
 const { handleShopCallback } = require('../lib/shop');
+const { handleRoleCallback } = require('../lib/role');
 const { handleAdminCallback } = require('../lib/admin');
 const { handleModerationCallback } = require('../lib/moderation');
 const { handleTasksCallback, handleCreateTaskStep } = require('../lib/tasks');
@@ -23,7 +24,7 @@ module.exports = async (req, res) => {
         const r = await query(
           `SELECT id, name, "displayName", balance, reputation, role, "referralCode",
                   "loginStreak", "lastDailyBonusAt", "telegramChatId",
-                  level, experience, "isBanned", "isModerator"
+                  level, experience, "isBanned", "isModerator", "roleChosen"
            FROM "User" WHERE "telegramChatId" = $1`,
           [String(chatId)]
         );
@@ -65,6 +66,7 @@ module.exports = async (req, res) => {
 
       // Порядок важен: специфичные обработчики раньше
       if (await handleShopCallback(data, ctx)) return res.status(200).send('OK');
+      if (await handleRoleCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleAdminCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleModerationCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleTasksCallback(data, ctx)) return res.status(200).send('OK');
