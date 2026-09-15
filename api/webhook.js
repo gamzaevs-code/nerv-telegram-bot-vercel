@@ -8,6 +8,7 @@ const { handleTasksCallback, handleCreateTaskStep } = require('../lib/tasks');
 const { handleProfileCallback } = require('../lib/profile');
 const { handleSocialCallback, handleSocialStep } = require('../lib/social');
 const { handleTextCommand } = require('../lib/texts');
+const { handleStartParam } = require('../lib/deeplinks');
 
 const userState = {};
 
@@ -57,14 +58,14 @@ module.exports = async (req, res) => {
 
       const ctx = { edit, user, chatId, isAdmin, isModerator, userState, sendMessage };
 
-      // Меню — обрабатываем здесь, потому что нужно много модулей
+      // Меню — обрабатываем здесь
       if (data === 'menu') {
         const { buildMainMenu } = require('../lib/menu');
         await edit('🤖 *Главное меню*', 'Markdown', buildMainMenu(user));
         return res.status(200).send('OK');
       }
 
-      // Порядок важен: специфичные обработчики раньше
+      // Порядок важен
       if (await handleShopCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleRoleCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleAdminCallback(data, ctx)) return res.status(200).send('OK');
@@ -96,6 +97,16 @@ module.exports = async (req, res) => {
 
     const ctx = { send, user, chatId, isAdmin, isModerator, userState, sendMessage };
 
+    // ========== DEEP LINKS (/start <param>) ==========
+    if (text.startsWith('/start ') || text.startsWith('/start@')) {
+      const parts = text.split(' ');
+      const param = parts[1] || '';
+      if (param) {
+        const handled = await handleStartParam(param, ctx);
+        if (handled) return res.status(200).send('OK');
+      }
+    }
+
     // ========== ПОШАГОВЫЕ СОСТОЯНИЯ ==========
     if (text && userState[chatId] && userState[chatId].step) {
       const state = userState[chatId];
@@ -105,10 +116,7 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
-      // Социальные состояния (поддержка, жалоба, рассылка)
       if (await handleSocialStep(state, text, ctx)) return res.status(200).send('OK');
-
-      // Создание задания (title → description → reward)
       if (await handleCreateTaskStep(state, text, ctx)) return res.status(200).send('OK');
     }
 
