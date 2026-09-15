@@ -69,6 +69,7 @@ module.exports = async (req, res) => {
       const user = await getUser(chatId);
       const isAdmin = user && user.role === 'admin';
 
+      // ---- АДМИН-ПАНЕЛЬ ----
       if (data === 'admin_panel') {
         if (!isAdmin) { await edit('⛔ *Доступ запрещён.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         await edit('⚙️ *Админ-панель*\n\nВыберите действие:', 'Markdown', {
@@ -118,34 +119,40 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- МЕНЮ ----
       if (data === 'menu') {
         const keyboard = [
-          [{ text: '📊 Профиль', callback_data: 'profile' }],
-          [{ text: '📋 Задания', callback_data: 'tasks' }],
-          [{ text: '💰 Кошелёк', callback_data: 'wallet' }],
-          [{ text: '➕ Создать задание', callback_data: 'create' }],
-          [{ text: '🏆 Рейтинг', callback_data: 'leaderboard' }],
-          [{ text: '🎁 Бонус', callback_data: 'daily' }],
-          [{ text: '🔗 Рефералы', callback_data: 'referral' }],
-          [{ text: '👥 Игроки', callback_data: 'players_menu' }],
-          [{ text: '💬 Сообщения', callback_data: 'inbox' }],
+          [{ text: '📊 Профиль', callback_data: 'profile' }, { text: '🎖 Достижения', callback_data: 'achievements' }],
+          [{ text: '📋 Доступные задания', callback_data: 'tasks' }],
+          [{ text: '📝 Мои задания', callback_data: 'my_tasks' }, { text: '🎨 Мои созданные', callback_data: 'my_created' }],
+          [{ text: '💰 Кошелёк', callback_data: 'wallet' }, { text: '➕ Создать', callback_data: 'create' }],
+          [{ text: '🏆 Рейтинг', callback_data: 'leaderboard' }, { text: '🎁 Бонус', callback_data: 'daily' }],
+          [{ text: '🔗 Рефералы', callback_data: 'referral' }, { text: '📈 Статистика', callback_data: 'stats' }],
+          [{ text: '👥 Игроки', callback_data: 'players_menu' }, { text: '💬 Сообщения', callback_data: 'inbox' }],
+          [{ text: '💡 Поддержка', callback_data: 'support' }, { text: '❓ Помощь', callback_data: 'help' }],
         ];
-        if (isAdmin) keyboard.push([{ text: '⚙️ Админ', callback_data: 'admin_panel' }]);
-        keyboard.push([{ text: '❓ Помощь', callback_data: 'help' }]);
+        if (isAdmin) keyboard.push([{ text: '⚙️ Админ-панель', callback_data: 'admin_panel' }]);
         await edit('🤖 *Главное меню*', 'Markdown', { inline_keyboard: keyboard });
         return res.status(200).send('OK');
       }
 
+      // ---- ПРОФИЛЬ ----
       if (data === 'profile') {
         if (!user) { await edit('❌ *Не привязан.* /link your@email.com', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
-        await edit(`👤 *${user.displayName || user.name}*\n\n💰 Баланс: ${user.balance} ₽\n⭐ Репутация: ${user.reputation}\n🎮 Роль: ${user.role}`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        const rank = await query(`SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1`, [user.reputation]);
+        await edit(
+          `👤 *${user.displayName || user.name}*\n\n💰 Баланс: ${user.balance} ₽\n⭐ Репутация: ${user.reputation}\n🎮 Роль: ${user.role}\n🏅 Место: #${rank.rows[0].pos}\n🔥 Streak: ${user.loginStreak} дн.`,
+          'Markdown',
+          { inline_keyboard: [[{ text: '📈 Статистика', callback_data: 'stats' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] }
+        );
         return res.status(200).send('OK');
       }
 
+      // ---- СПИСОК ЗАДАНИЙ ----
       if (data === 'tasks') {
         try {
           const r = await query(`SELECT id, title, reward, status, "playerId" FROM "Task" WHERE status IN ('open','voting') ORDER BY "createdAt" DESC LIMIT 10`);
-          if (r.rows.length === 0) { await edit('📭 *Нет доступных заданий.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+          if (r.rows.length === 0) { await edit('📭 *Нет доступных заданий.*', 'Markdown', { inline_keyboard: [[{ text: '➕ Создать задание', callback_data: 'create' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
           const isPlayer = user && user.role === 'player';
           const buttons = [];
           r.rows.forEach(t => {
@@ -163,35 +170,61 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- ПРОСМОТР ЗАДАНИЯ ----
       if (data.startsWith('task_')) {
         const taskId = parseInt(data.split('_')[1]);
         try {
           const r = await query(`SELECT t.*, u.name AS creator, p.name AS player FROM "Task" t JOIN "User" u ON t."creatorId" = u.id LEFT JOIN "User" p ON t."playerId" = p.id WHERE t.id = $1`, [taskId]);
           if (r.rows.length === 0) { await edit('❌ *Не найдено*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
           const t = r.rows[0];
-          let text = `📌 *${t.title}*\n\n📝 ${t.description || 'Без описания'}\n💰 Награда: ${t.reward} ₽\n👤 Создатель: ${t.creator}\n📌 Статус: ${t.status}\n`;
+          const vr = await query(`SELECT value, COUNT(*)::int AS cnt FROM "Vote" WHERE "taskId"=$1 GROUP BY value`, [taskId]);
+          const approve = vr.rows.find(x => x.value === 'approve')?.cnt || 0;
+          const reject = vr.rows.find(x => x.value === 'reject')?.cnt || 0;
+          let text = `📌 *${t.title}*\n\n📝 ${t.description || 'Без описания'}\n💰 Награда: ${t.reward} ₽\n👤 Создатель: ${t.creator}\n📌 Статус: ${t.status}\n👍 ${approve} / 👎 ${reject}\n`;
           if (t.player) text += `🎮 Игрок: ${t.player}\n`;
           if (t.videoUrl) text += `🎬 Видео загружено\n`;
-          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] });
+          const buttons = [];
+          const isPlayer = user && user.role === 'player';
+          if (t.status === 'open' && isPlayer && !t.playerId) buttons.push([{ text: '🎯 Взять задание', callback_data: `take_${t.id}` }]);
+          buttons.push([{ text: '🔙 К списку', callback_data: 'tasks' }]);
+          buttons.push([{ text: '🔙 В меню', callback_data: 'menu' }]);
+          await edit(text, 'Markdown', { inline_keyboard: buttons });
         } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); }
         return res.status(200).send('OK');
       }
 
+      // ---- ВЗЯТИЕ ЗАДАНИЯ ----
       if (data.startsWith('take_')) {
         const taskId = parseInt(data.split('_')[1]);
         if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
-        if (user.role !== 'player') { await edit('❌ *Только игроки*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
+        if (user.role !== 'player') { await edit('❌ *Только игроки могут брать задания*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
         try {
           const r = await query(`UPDATE "Task" SET status='taken', "playerId"=$1 WHERE id=$2 AND status='open' AND "playerId" IS NULL RETURNING *`, [user.id, taskId]);
           if (r.rowCount === 0) { await edit('❌ *Уже взято*', 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] }); return res.status(200).send('OK'); }
           const t = r.rows[0];
-          await edit(`✅ *Задание взято!*\n\n📌 ${t.title}\n💰 ${t.reward} ₽\n\nЗагрузи видео в этот чат.`, 'Markdown', { inline_keyboard: [[{ text: '📋 Мои задания', callback_data: 'my_tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] });
+          await edit(`✅ *Задание взято!*\n\n📌 ${t.title}\n💰 ${t.reward} ₽\n\nОтправь видео в этот чат, чтобы сдать задание.`, 'Markdown', { inline_keyboard: [[{ text: '📝 Мои задания', callback_data: 'my_tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] });
           const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
           if (cr.rows[0]?.telegramChatId) await sendMessage(cr.rows[0].telegramChatId, `🎯 *Задание взято!*\n📌 ${t.title}\n👤 ${user.displayName || user.name}`);
         } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'tasks' }]] }); }
         return res.status(200).send('OK');
       }
 
+      // ---- ОТКАЗ ОТ ЗАДАНИЯ ----
+      if (data.startsWith('abandon_')) {
+        const taskId = parseInt(data.split('_')[1]);
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'my_tasks' }]] }); return res.status(200).send('OK'); }
+        try {
+          const r = await query(`UPDATE "Task" SET status='open', "playerId"=NULL WHERE id=$1 AND "playerId"=$2 AND status='taken' RETURNING *`, [taskId, user.id]);
+          if (r.rowCount === 0) { await edit('❌ *Не удалось отказаться*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'my_tasks' }]] }); return res.status(200).send('OK'); }
+          const t = r.rows[0];
+          await edit(`↩️ *Ты отказался от задания:*\n📌 ${t.title}`, 'Markdown', { inline_keyboard: [[{ text: '📝 Мои задания', callback_data: 'my_tasks' }], [{ text: '🔙 В меню', callback_data: 'menu' }]] });
+          const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
+          if (cr.rows[0]?.telegramChatId) await sendMessage(cr.rows[0].telegramChatId, `↩️ Игрок отказался от задания «${t.title}». Задание снова доступно.`);
+        } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'my_tasks' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      // ---- ГОЛОСОВАНИЕ ----
       if (data.startsWith('vote_')) {
         const parts = data.split('_');
         const taskId = parseInt(parts[1]);
@@ -205,7 +238,7 @@ module.exports = async (req, res) => {
           const vr = await query('SELECT value, COUNT(*)::int AS cnt FROM "Vote" WHERE "taskId"=$1 GROUP BY value', [taskId]);
           const approve = vr.rows.find(x => x.value === 'approve')?.cnt || 0;
           const reject = vr.rows.find(x => x.value === 'reject')?.cnt || 0;
-          await edit(`✅ *Голос принят!*\n\nЗа: ${approve}\nПротив: ${reject}`, 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] });
+          await edit(`✅ *Голос принят!*\n\n👍 За: ${approve}\n👎 Против: ${reject}\n\n_+1 к репутации_`, 'Markdown', { inline_keyboard: [[{ text: '🔙 К списку', callback_data: 'tasks' }]] });
           if (approve >= 5) {
             const tr = await query(`UPDATE "Task" SET status='approved' WHERE id=$1 RETURNING *`, [taskId]);
             const t = tr.rows[0];
@@ -220,18 +253,110 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- МОИ ЗАДАНИЯ ----
       if (data === 'my_tasks') {
         if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         try {
-          const r = await query(`SELECT t.id, t.title, t.reward, t.status, u.name AS creator FROM "Task" t JOIN "User" u ON t."creatorId" = u.id WHERE t."playerId"=$1 ORDER BY t."updatedAt" DESC`, [user.id]);
-          if (r.rows.length === 0) { await edit('📭 *У тебя нет заданий.*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
-          let text = '📋 *Твои задания:*\n\n';
-          r.rows.forEach((t, i) => { text += `${i + 1}. *${t.title}*\n   💰 ${t.reward} ₽\n   Статус: ${t.status}\n   👤 ${t.creator}\n\n`; });
-          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
-        } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+          const r = await query(`SELECT t.id, t.title, t.reward, t.status, u.name AS creator FROM "Task" t JOIN "User" u ON t."creatorId" = u.id WHERE t."playerId"=$1 ORDER BY t."updatedAt" DESC LIMIT 15`, [user.id]);
+          if (r.rows.length === 0) { await edit('📭 *У тебя нет заданий.*\n\nВозьми задание из списка!', 'Markdown', { inline_keyboard: [[{ text: '📋 Доступные', callback_data: 'tasks' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+          let text = '📝 *Твои задания:*\n\n';
+          const buttons = [];
+          r.rows.forEach((t, i) => {
+            const statusEmoji = t.status === 'open' ? '🟢' : t.status === 'taken' ? '🟡' : t.status === 'voting' ? '🗳️' : t.status === 'approved' ? '✅' : '⚪';
+            text += `${i + 1}. ${statusEmoji} *${t.title}*\n   💰 ${t.reward} ₽ · Статус: ${t.status}\n   👤 ${t.creator}\n\n`;
+            const row = [{ text: `📌 ${t.title.slice(0, 25)}`, callback_data: `task_${t.id}` }];
+            if (t.status === 'taken') row.push({ text: '↩️ Отказаться', callback_data: `abandon_${t.id}` });
+            buttons.push(row);
+          });
+          buttons.push([{ text: '📋 Доступные задания', callback_data: 'tasks' }]);
+          buttons.push([{ text: '🔙 Назад', callback_data: 'menu' }]);
+          await edit(text, 'Markdown', { inline_keyboard: buttons });
+        } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
         return res.status(200).send('OK');
       }
 
+      // ---- МОИ СОЗДАННЫЕ ЗАДАНИЯ ----
+      if (data === 'my_created') {
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          const r = await query(
+            `SELECT t.id, t.title, t.reward, t.status,
+                    (SELECT COUNT(*)::int FROM "Vote" WHERE "taskId"=t.id AND value='approve') AS approve,
+                    (SELECT COUNT(*)::int FROM "Vote" WHERE "taskId"=t.id AND value='reject') AS reject
+             FROM "Task" t WHERE t."creatorId"=$1 ORDER BY t."createdAt" DESC LIMIT 15`,
+            [user.id]
+          );
+          if (r.rows.length === 0) { await edit('📭 *Ты ещё не создавал заданий.*\n\nНажми «➕ Создать» в меню.', 'Markdown', { inline_keyboard: [[{ text: '➕ Создать задание', callback_data: 'create' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+          let text = '🎨 *Твои созданные задания:*\n\n';
+          r.rows.forEach((t, i) => {
+            const statusEmoji = t.status === 'open' ? '🟢' : t.status === 'taken' ? '🟡' : t.status === 'voting' ? '🗳️' : t.status === 'approved' ? '✅' : '⚪';
+            text += `${i + 1}. ${statusEmoji} *${t.title}*\n   💰 ${t.reward} ₽ · Статус: ${t.status}\n   👍 ${t.approve} / 👎 ${t.reject}\n\n`;
+          });
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '➕ Создать ещё', callback_data: 'create' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      // ---- ДОСТИЖЕНИЯ ----
+      if (data === 'achievements') {
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          const r = await query(
+            `SELECT a.name, a.description, a.icon, a.reward, ua."unlockedAt"
+             FROM "Achievement" a
+             LEFT JOIN "UserAchievement" ua ON ua."achievementId" = a.id AND ua."userId" = $1
+             ORDER BY ua."unlockedAt" DESC NULLS LAST`,
+            [user.id]
+          );
+          if (r.rows.length === 0) { await edit('🎖 *Достижений пока нет.*\n\nМы работаем над этим!', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+          let text = '🎖 *Достижения:*\n\n';
+          let unlocked = 0;
+          r.rows.forEach((a) => {
+            const isUnlocked = a.unlockedAt !== null;
+            if (isUnlocked) unlocked++;
+            text += `${isUnlocked ? '✅' : '🔒'} ${a.icon || '🏅'} *${a.name}*\n   ${a.description}\n   🎁 ${a.reward} ₽\n\n`;
+          });
+          text = `🎖 *Достижения:* ${unlocked}/${r.rows.length}\n\n` + text;
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      // ---- СТАТИСТИКА ----
+      if (data === 'stats') {
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        try {
+          const rank = await query(`SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1`, [user.reputation]);
+          const tasksCreated = await query(`SELECT COUNT(*)::int AS c FROM "Task" WHERE "creatorId"=$1`, [user.id]);
+          const tasksDone = await query(`SELECT COUNT(*)::int AS c FROM "Task" WHERE "playerId"=$1 AND status='approved'`, [user.id]);
+          const earnings = await query(`SELECT COALESCE(SUM(amount),0)::int AS s FROM "Transaction" WHERE "userId"=$1 AND amount > 0`, [user.id]);
+          const spendings = await query(`SELECT COALESCE(SUM(amount),0)::int AS s FROM "Transaction" WHERE "userId"=$1 AND amount < 0`, [user.id]);
+          const text = `📈 *Статистика ${user.displayName || user.name}*\n\n`
+            + `🏅 Место в рейтинге: *#${rank.rows[0].pos}*\n`
+            + `⭐ Репутация: *${user.reputation}*\n`
+            + `🔥 Streak: *${user.loginStreak} дн.*\n\n`
+            + `🎨 Создано заданий: *${tasksCreated.rows[0].c}*\n`
+            + `✅ Выполнено заданий: *${tasksDone.rows[0].c}*\n\n`
+            + `📥 Всего заработано: *${earnings.rows[0].s} ₽*\n`
+            + `📤 Всего потрачено: *${Math.abs(spendings.rows[0].s)} ₽*\n`;
+          await edit(text, 'Markdown', { inline_keyboard: [[{ text: '📊 Профиль', callback_data: 'profile' }], [{ text: '🏆 Рейтинг', callback_data: 'leaderboard' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        } catch (e) { console.error(e); await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
+        return res.status(200).send('OK');
+      }
+
+      // ---- ПОДДЕРЖКА ----
+      if (data === 'support') {
+        if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
+        userState[chatId] = { step: 'support_message' };
+        await edit(
+          '💡 *Поддержка*\n\nОпиши свою проблему или вопрос в следующем сообщении. Мы ответим как можно скорее.\n\n📌 Для отмены — /menu',
+          'Markdown',
+          { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'menu' }]] }
+        );
+        return res.status(200).send('OK');
+      }
+
+      // ---- КОШЕЛЁК ----
       if (data === 'wallet') {
         if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         try {
@@ -256,11 +381,12 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- РЕЙТИНГ ----
       if (data === 'leaderboard') {
         try {
           const r = await query('SELECT name, "displayName", reputation, balance FROM "User" ORDER BY reputation DESC LIMIT 10');
           let text = '🏆 *Топ по репутации:*\n\n';
-          r.rows.forEach((u, i) => { text += `${i + 1}. ${u.displayName || u.name} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`; });
+          r.rows.forEach((u, i) => { const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`; text += `${medal} ${u.displayName || u.name} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`; });
           await edit(text, 'Markdown', { inline_keyboard: [[{ text: '💰 По балансу', callback_data: 'leaderboard_balance' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] });
         } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
         return res.status(200).send('OK');
@@ -270,25 +396,29 @@ module.exports = async (req, res) => {
         try {
           const r = await query('SELECT name, "displayName", reputation, balance FROM "User" ORDER BY balance DESC LIMIT 10');
           let text = '💰 *Топ по балансу:*\n\n';
-          r.rows.forEach((u, i) => { text += `${i + 1}. ${u.displayName || u.name} — 💰 ${u.balance}₽ (⭐ ${u.reputation})\n`; });
+          r.rows.forEach((u, i) => { const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`; text += `${medal} ${u.displayName || u.name} — 💰 ${u.balance}₽ (⭐ ${u.reputation})\n`; });
           await edit(text, 'Markdown', { inline_keyboard: [[{ text: '⭐ По репутации', callback_data: 'leaderboard' }], [{ text: '🔙 Назад', callback_data: 'menu' }]] });
         } catch { await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); }
         return res.status(200).send('OK');
       }
 
+      // ---- БОНУС ----
       if (data === 'daily') {
         if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         const now = new Date();
         const last = user.lastDailyBonusAt ? new Date(user.lastDailyBonusAt) : null;
         const hoursSince = last ? (now - last) / (1000 * 60 * 60) : 24;
         if (hoursSince < 24) { await edit(`⏳ *Бонус уже получен.*\nСледующий через ${Math.ceil(24 - hoursSince)} ч.`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
-        const bonus = 10;
+        const baseBonus = 10;
+        const streakBonus = Math.min((user.loginStreak || 0) * 2, 20);
+        const bonus = baseBonus + streakBonus;
         await query('UPDATE "User" SET balance = balance + $1, "loginStreak" = "loginStreak" + 1, "lastDailyBonusAt" = NOW() WHERE id=$2', [bonus, user.id]);
         await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'daily_bonus',$2,'completed','Ежедневный бонус',NOW())`, [user.id, bonus]);
-        await edit(`🎁 *Бонус получен!*\n+${bonus} ₽\nБаланс: ${user.balance + bonus} ₽`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        await edit(`🎁 *Бонус получен!*\n\n+${bonus} ₽\n_Базовый: +${baseBonus} ₽_\n_За streak: +${streakBonus} ₽_\n\nБаланс: ${user.balance + bonus} ₽`, 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
       }
 
+      // ---- РЕФЕРАЛЫ ----
       if (data === 'referral') {
         if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         let code = user.referralCode;
@@ -298,6 +428,7 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- ПОИСК ИГРОКОВ ----
       if (data === 'players_menu') {
         await edit('👥 *Поиск игроков*\n\nНапиши `/search Имя` для поиска.', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
         return res.status(200).send('OK');
@@ -311,6 +442,7 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- ВХОДЯЩИЕ ----
       if (data === 'inbox') {
         if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         const r = await query(`SELECT m.text, m."fromUserId", u.name, u."displayName" FROM "Message" m JOIN "User" u ON m."fromUserId"=u.id WHERE m."toUserId"=$1 AND m."isRead"=false ORDER BY m."createdAt" DESC`, [user.id]);
@@ -322,6 +454,7 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- СОЗДАТЬ ЗАДАНИЕ ----
       if (data === 'create') {
         if (!user) { await edit('❌ *Сначала привяжи аккаунт*', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }); return res.status(200).send('OK'); }
         userState[chatId] = { step: 'title' };
@@ -329,8 +462,31 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ---- ПОМОЩЬ ----
       if (data === 'help') {
-        await edit('📖 *Помощь*\n\n/start — Меню\n/link email — Привязать\n/profile — Профиль\n/tasks — Задания\n/wallet — Кошелёк\n/leaderboard — Рейтинг\n/daily — Бонус\n/referral — Рефералы\n/search имя — Поиск\n/msg id текст — Написать\n/inbox — Входящие\n/help — Помощь', 'Markdown', { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] });
+        await edit(
+          '📖 *Помощь*\n\n' +
+          '*🎯 Основное:*\n' +
+          '/start — Меню\n' +
+          '/profile — Профиль\n' +
+          '/tasks — Задания\n' +
+          '/my — Мои задания\n\n' +
+          '*💰 Экономика:*\n' +
+          '/wallet — Кошелёк\n' +
+          '/daily — Бонус\n' +
+          '/referral — Рефералы\n' +
+          '/leaderboard — Рейтинг\n\n' +
+          '*👥 Соцфункции:*\n' +
+          '/search имя — Поиск\n' +
+          '/msg id текст — Написать\n' +
+          '/inbox — Входящие\n\n' +
+          '*⚙️ Прочее:*\n' +
+          '/link email — Привязать\n' +
+          '/delete_data — Отвязать\n' +
+          '/help — Помощь',
+          'Markdown',
+          { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'menu' }]] }
+        );
         return res.status(200).send('OK');
       }
 
@@ -348,24 +504,24 @@ module.exports = async (req, res) => {
     const user = await getUser(chatId);
     const isAdmin = user && user.role === 'admin';
 
+    // ---- /start /menu ----
     if (text === '/start' || text === '/menu') {
       const keyboard = [
-        [{ text: '📊 Профиль', callback_data: 'profile' }],
-        [{ text: '📋 Задания', callback_data: 'tasks' }],
-        [{ text: '💰 Кошелёк', callback_data: 'wallet' }],
-        [{ text: '➕ Создать задание', callback_data: 'create' }],
-        [{ text: '🏆 Рейтинг', callback_data: 'leaderboard' }],
-        [{ text: '🎁 Бонус', callback_data: 'daily' }],
-        [{ text: '🔗 Рефералы', callback_data: 'referral' }],
-        [{ text: '👥 Игроки', callback_data: 'players_menu' }],
-        [{ text: '💬 Сообщения', callback_data: 'inbox' }],
+        [{ text: '📊 Профиль', callback_data: 'profile' }, { text: '🎖 Достижения', callback_data: 'achievements' }],
+        [{ text: '📋 Доступные задания', callback_data: 'tasks' }],
+        [{ text: '📝 Мои задания', callback_data: 'my_tasks' }, { text: '🎨 Мои созданные', callback_data: 'my_created' }],
+        [{ text: '💰 Кошелёк', callback_data: 'wallet' }, { text: '➕ Создать', callback_data: 'create' }],
+        [{ text: '🏆 Рейтинг', callback_data: 'leaderboard' }, { text: '🎁 Бонус', callback_data: 'daily' }],
+        [{ text: '🔗 Рефералы', callback_data: 'referral' }, { text: '📈 Статистика', callback_data: 'stats' }],
+        [{ text: '👥 Игроки', callback_data: 'players_menu' }, { text: '💬 Сообщения', callback_data: 'inbox' }],
+        [{ text: '💡 Поддержка', callback_data: 'support' }, { text: '❓ Помощь', callback_data: 'help' }],
       ];
-      if (isAdmin) keyboard.push([{ text: '⚙️ Админ', callback_data: 'admin_panel' }]);
-      keyboard.push([{ text: '❓ Помощь', callback_data: 'help' }]);
+      if (isAdmin) keyboard.push([{ text: '⚙️ Админ-панель', callback_data: 'admin_panel' }]);
       await send('🤖 *Главное меню*', 'Markdown', { inline_keyboard: keyboard });
       return res.status(200).send('OK');
     }
 
+    // ---- /link ----
     if (text.startsWith('/link ')) {
       const email = text.replace('/link ', '').trim().toLowerCase();
       if (!email.match(/^[^@]+@[^@]+\.[^@]+$/)) { await send('❌ *Неверный email*'); return res.status(200).send('OK'); }
@@ -381,12 +537,15 @@ module.exports = async (req, res) => {
 
     if (text === '/link') { await send('⚠️ *Укажи email:* `/link your@email.com`'); return res.status(200).send('OK'); }
 
+    // ---- /profile ----
     if (text === '/profile') {
       if (!user) { await send('❌ *Не привязан.* /link your@email.com'); return res.status(200).send('OK'); }
-      await send(`👤 *${user.displayName || user.name}*\n\n💰 ${user.balance} ₽\n⭐ ${user.reputation}\n🎮 ${user.role}`);
+      const rank = await query(`SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1`, [user.reputation]);
+      await send(`👤 *${user.displayName || user.name}*\n\n💰 ${user.balance} ₽\n⭐ ${user.reputation}\n🎮 ${user.role}\n🏅 Место: #${rank.rows[0].pos}\n🔥 Streak: ${user.loginStreak} дн.`);
       return res.status(200).send('OK');
     }
 
+    // ---- /profile <id> ----
     if (text.startsWith('/profile ')) {
       const id = parseInt(text.replace('/profile ', '').trim());
       if (isNaN(id)) { await send('❌ *Неверный ID*'); return res.status(200).send('OK'); }
@@ -396,6 +555,28 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /my ----
+    if (text === '/my') {
+      if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
+      try {
+        const r = await query(
+          `SELECT t.id, t.title, t.reward, t.status, u.name AS creator
+           FROM "Task" t JOIN "User" u ON t."creatorId" = u.id
+           WHERE t."playerId"=$1 ORDER BY t."updatedAt" DESC LIMIT 15`,
+          [user.id]
+        );
+        if (r.rows.length === 0) { await send('📭 *У тебя нет заданий.*'); return res.status(200).send('OK'); }
+        let msg = '📝 *Твои задания:*\n\n';
+        r.rows.forEach((t, i) => {
+          const statusEmoji = t.status === 'taken' ? '🟡' : t.status === 'voting' ? '🗳️' : t.status === 'approved' ? '✅' : '⚪';
+          msg += `${i + 1}. ${statusEmoji} *${t.title}*\n   💰 ${t.reward} ₽ · ${t.status}\n   👤 ${t.creator}\n\n`;
+        });
+        await send(msg);
+      } catch { await send('❌ *Ошибка*'); }
+      return res.status(200).send('OK');
+    }
+
+    // ---- /tasks ----
     if (text === '/tasks') {
       try {
         const r = await query(`SELECT id, title, reward, status, "playerId" FROM "Task" WHERE status IN ('open','voting') ORDER BY "createdAt" DESC LIMIT 10`);
@@ -417,6 +598,7 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /search ----
     if (text.startsWith('/search ')) {
       const q = text.replace('/search ', '').trim();
       if (q.length < 2) { await send('⚠️ *Минимум 2 символа*'); return res.status(200).send('OK'); }
@@ -428,6 +610,7 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /msg <id> <текст> ----
     if (text.startsWith('/msg ')) {
       if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
       const parts = text.split(' ');
@@ -445,6 +628,7 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /inbox ----
     if (text === '/inbox') {
       if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
       const r = await query(`SELECT m.text, m."fromUserId", u.name, u."displayName" FROM "Message" m JOIN "User" u ON m."fromUserId"=u.id WHERE m."toUserId"=$1 AND m."isRead"=false ORDER BY m."createdAt" DESC`, [user.id]);
@@ -456,19 +640,43 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /chat <id> ----
+    if (text.startsWith('/chat ')) {
+      if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
+      const id = parseInt(text.replace('/chat ', '').trim());
+      if (isNaN(id)) { await send('❌ *Неверный ID*'); return res.status(200).send('OK'); }
+      const target = await getUserById(id);
+      if (!target) { await send('❌ *Не найден*'); return res.status(200).send('OK'); }
+      const r = await query(
+        `SELECT m.text, m."fromUserId", u.name, u."displayName" FROM "Message" m JOIN "User" u ON m."fromUserId"=u.id
+         WHERE (m."fromUserId"=$1 AND m."toUserId"=$2) OR (m."fromUserId"=$2 AND m."toUserId"=$1)
+         ORDER BY m."createdAt" ASC LIMIT 50`,
+        [user.id, target.id]
+      );
+      if (r.rows.length === 0) { await send('💬 *Нет переписки.*'); return res.status(200).send('OK'); }
+      let msg = `💬 *Переписка с ${target.displayName || target.name}:*\n\n`;
+      r.rows.forEach(m => { const prefix = m.fromUserId === user.id ? 'Вы' : (m.displayName || m.name); msg += `**${prefix}:** ${m.text}\n`; });
+      await send(msg);
+      return res.status(200).send('OK');
+    }
+
+    // ---- /daily ----
     if (text === '/daily') {
       if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
       const now = new Date();
       const last = user.lastDailyBonusAt ? new Date(user.lastDailyBonusAt) : null;
       const hoursSince = last ? (now - last) / (1000 * 60 * 60) : 24;
       if (hoursSince < 24) { await send(`⏳ *Бонус уже получен.* Следующий через ${Math.ceil(24 - hoursSince)} ч.`); return res.status(200).send('OK'); }
-      const bonus = 10;
+      const baseBonus = 10;
+      const streakBonus = Math.min((user.loginStreak || 0) * 2, 20);
+      const bonus = baseBonus + streakBonus;
       await query('UPDATE "User" SET balance = balance + $1, "loginStreak"="loginStreak"+1, "lastDailyBonusAt"=NOW() WHERE id=$2', [bonus, user.id]);
       await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'daily_bonus',$2,'completed','Ежедневный бонус',NOW())`, [user.id, bonus]);
-      await send(`🎁 *Бонус получен!* +${bonus} ₽\nБаланс: ${user.balance + bonus} ₽`);
+      await send(`🎁 *Бонус получен!* +${bonus} ₽\n_Базовый: +${baseBonus} ₽, Streak: +${streakBonus} ₽_\nБаланс: ${user.balance + bonus} ₽`);
       return res.status(200).send('OK');
     }
 
+    // ---- /referral ----
     if (text === '/referral') {
       if (!user) { await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
       let code = user.referralCode;
@@ -478,14 +686,16 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /leaderboard ----
     if (text === '/leaderboard') {
       const r = await query('SELECT name, "displayName", reputation, balance FROM "User" ORDER BY reputation DESC LIMIT 10');
       let msg = '🏆 *Топ:*\n\n';
-      r.rows.forEach((u, i) => { msg += `${i + 1}. ${u.displayName || u.name} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`; });
+      r.rows.forEach((u, i) => { const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`; msg += `${medal} ${u.displayName || u.name} — ⭐ ${u.reputation} (💰 ${u.balance}₽)\n`; });
       await send(msg);
       return res.status(200).send('OK');
     }
 
+    // ---- /admin ----
     if (text === '/admin') {
       if (!isAdmin) { await send('⛔ *Доступ запрещён.*'); return res.status(200).send('OK'); }
       await send('⚙️ *Админ-панель*', 'Markdown', {
@@ -499,6 +709,34 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- /help ----
+    if (text === '/help') {
+      await send(
+        '📖 *Помощь*\n\n' +
+        '*🎯 Основное:*\n' +
+        '/start — Меню\n' +
+        '/profile — Профиль\n' +
+        '/tasks — Задания\n' +
+        '/my — Мои задания\n\n' +
+        '*💰 Экономика:*\n' +
+        '/wallet — Кошелёк\n' +
+        '/daily — Бонус\n' +
+        '/referral — Рефералы\n' +
+        '/leaderboard — Рейтинг\n\n' +
+        '*👥 Соцфункции:*\n' +
+        '/search имя — Поиск\n' +
+        '/msg id текст — Написать\n' +
+        '/inbox — Входящие\n\n' +
+        '*⚙️ Прочее:*\n' +
+        '/link email — Привязать\n' +
+        '/delete_data — Отвязать',
+        'Markdown',
+        { inline_keyboard: [[{ text: '🔙 Меню', callback_data: 'menu' }]] }
+      );
+      return res.status(200).send('OK');
+    }
+
+    // ---- /delete_data ----
     if (text === '/delete_data') {
       if (!user) { await send('❌ *Не привязан*'); return res.status(200).send('OK'); }
       await query('UPDATE "User" SET "telegramChatId"=NULL, "telegramLinked"=false WHERE id=$1', [user.id]);
@@ -506,10 +744,22 @@ module.exports = async (req, res) => {
       return res.status(200).send('OK');
     }
 
+    // ---- Пошаговое создание + поддержка (только для текстовых) ----
     if (message.text && userState[chatId] && userState[chatId].step) {
       const state = userState[chatId];
       if (!user) { delete userState[chatId]; await send('❌ *Сначала привяжи*'); return res.status(200).send('OK'); }
 
+      // Поддержка
+      if (state.step === 'support_message') {
+        try {
+          await query(`INSERT INTO "SupportMessage" ("userId", message, "isFromAdmin", "createdAt") VALUES ($1, $2, false, NOW())`, [user.id, text]);
+          delete userState[chatId];
+          await send('✅ *Обращение отправлено!*\n\nМы ответим в ближайшее время.', 'Markdown', { inline_keyboard: [[{ text: '🔙 В меню', callback_data: 'menu' }]] });
+        } catch (e) { console.error('support:', e); await send('❌ *Не удалось отправить.* Попробуй позже.'); delete userState[chatId]; }
+        return res.status(200).send('OK');
+      }
+
+      // Создание задания
       if (state.step === 'title') { state.title = text; state.step = 'description'; await send('📝 *Введите описание:*'); return res.status(200).send('OK'); }
       if (state.step === 'description') { state.description = text; state.step = 'reward'; await send('💰 *Введите награду (число, >=10):*'); return res.status(200).send('OK'); }
       if (state.step === 'reward') {
@@ -522,11 +772,12 @@ module.exports = async (req, res) => {
         await query('UPDATE "User" SET balance = balance - $1 WHERE id=$2', [reward, user.id]);
         await query(`INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt") VALUES ($1,'task_create',$2,'completed',$3,NOW())`, [user.id, -reward, `Создание "${t.title}"`]);
         delete userState[chatId];
-        await send(`✅ *Создано!*\n📌 ${t.title}\n💰 ${t.reward} ₽`, 'Markdown', { inline_keyboard: [[{ text: '📋 Задания', callback_data: 'tasks' }]] });
+        await send(`✅ *Создано!*\n📌 ${t.title}\n💰 ${t.reward} ₽`, 'Markdown', { inline_keyboard: [[{ text: '📋 Задания', callback_data: 'tasks' }], [{ text: '🎨 Мои созданные', callback_data: 'my_created' }]] });
         return res.status(200).send('OK');
       }
     }
 
+    // ---- Обработка видео ----
     if (message.video || message.document) {
       if (!user || user.role !== 'player') { await send('❌ *Только игроки*'); return res.status(200).send('OK'); }
       const tr = await query(`SELECT * FROM "Task" WHERE "playerId"=$1 AND status='taken' ORDER BY "updatedAt" DESC LIMIT 1`, [user.id]);
