@@ -25,7 +25,8 @@ module.exports = async (req, res) => {
         const r = await query(
           `SELECT id, name, "displayName", balance, reputation, role, "referralCode",
                   "loginStreak", "lastDailyBonusAt", "telegramChatId",
-                  level, experience, "isBanned", "isModerator", "roleChosen"
+                  level, experience, "isBanned", "isModerator", "roleChosen",
+                  "notifyNewTasks"
            FROM "User" WHERE "telegramChatId" = $1`,
           [String(chatId)]
         );
@@ -56,12 +57,38 @@ module.exports = async (req, res) => {
       const isAdmin = user && user.role === 'admin';
       const isModerator = user && (user.isModerator || user.role === 'admin');
 
-      const ctx = { edit, user, chatId, isAdmin, isModerator, userState, sendMessage };
+      const ctx = { edit, user, chatId, messageId, isAdmin, isModerator, userState, sendMessage };
 
-      // Меню — обрабатываем здесь
+      // Меню
       if (data === 'menu') {
         const { buildMainMenu } = require('../lib/menu');
         await edit('🤖 *Главное меню*', 'Markdown', buildMainMenu(user));
+        return res.status(200).send('OK');
+      }
+
+      // ===== ТУРНИР =====
+      if (data === 'menu_tournament') {
+        try {
+          const { renderTournamentCard } = require('../lib/tournament');
+          const card = await renderTournamentCard();
+          await edit(card.text, 'Markdown', card.reply_markup);
+        } catch (e) {
+          console.error('menu_tournament:', e);
+          await edit('❌ *Ошибка загрузки турнира*', 'Markdown', {
+            inline_keyboard: [[{ text: '⬅️ В меню', callback_data: 'menu' }]],
+          });
+        }
+        return res.status(200).send('OK');
+      }
+
+      if (data === 'tournament_help') {
+        try {
+          const { getTournamentHelp } = require('../lib/tournament');
+          const card = getTournamentHelp();
+          await edit(card.text, 'Markdown', card.reply_markup);
+        } catch (e) {
+          console.error('tournament_help:', e);
+        }
         return res.status(200).send('OK');
       }
 

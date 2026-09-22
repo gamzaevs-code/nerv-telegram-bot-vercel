@@ -1,10 +1,12 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/webhook.js", "use": "@vercel/node" }
+    { "src": "api/*.js", "use": "@vercel/node" }
   ],
-  "routes": [
-    { "src": "/api/webhook", "dest": "api/webhook.js" },
-    { "src": "/(.*)", "dest": "api/webhook.js" }
+  "crons": [
+    {
+      "path": "/api/cron-tournament",
+      "schedule": "0 21 * * *"
+    }
   ]
 }
