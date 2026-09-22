@@ -3,6 +3,10 @@
     {
       "path": "/api/cron-tournament",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron-daily-summary",
+      "schedule": "0 21 * * *"
     }
   ]
 }
