@@ -7,6 +7,7 @@ let initData = '';
 let currentUser = null;
 let currentFilter = 'all';
 let currentTaskId = null;
+let currentTopCategory = 'reputation';
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
 const init = async () => {
@@ -52,7 +53,7 @@ const init = async () => {
         `${Number(profileData.profile.balance).toLocaleString('ru')} ₽`;
     }
 
-    await loadTasks();
+    await Promise.all([loadTasks(), loadTop()]);
     showApp();
   } catch (e) {
     console.error('init error:', e);
@@ -272,7 +273,6 @@ const renderTaskModal = (t, userRole) => {
 const handleTaskAction = async (action) => {
   if (!currentTaskId) return;
 
-  // Загрузка видео — закрываем Mini App и открываем бота
   if (action === 'upload') {
     tg?.HapticFeedback?.impactOccurred?.('medium');
     const link = `https://t.me/nerv_05bot?start=upload_${currentTaskId}`;
@@ -310,6 +310,84 @@ const handleTaskAction = async (action) => {
 const closeTaskModal = () => {
   document.getElementById('task-modal').classList.add('hidden');
   currentTaskId = null;
+};
+
+// ========== ТОП ИГРОКОВ ==========
+const loadTop = async () => {
+  const listEl = document.getElementById('top-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="placeholder">Загрузка рейтинга...</p>';
+
+  try {
+    const res = await fetch('/api/app-leaderboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, category: currentTopCategory }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    renderTop(data.top, data.myRank, data.myScore, data.category);
+  } catch (e) {
+    console.error('loadTop:', e);
+    listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить рейтинг</p>';
+  }
+};
+
+const renderTop = (top, myRank, myScore, category) => {
+  const listEl = document.getElementById('top-list');
+  const meEl = document.getElementById('top-me');
+
+  if (!top || top.length === 0) {
+    listEl.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🏆</div><p>Пока нет игроков</p></div>';
+    meEl.classList.add('hidden');
+    return;
+  }
+
+  const medals = ['🥇', '🥈', '🥉'];
+  const categoryIcons = {
+    reputation: '⭐',
+    balance: '💰',
+    completed: '✅',
+  };
+  const suffix = {
+    reputation: '',
+    balance: ' ₽',
+    completed: '',
+  }[category] || '';
+
+  listEl.innerHTML = top.map(u => {
+    const rankClass = u.rank === 1 ? 'gold' : u.rank === 2 ? 'silver' : u.rank === 3 ? 'bronze' : '';
+    const rankDisplay = u.rank <= 3 ? medals[u.rank - 1] : `#${u.rank}`;
+    const initials = u.name.split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
+    const sub = category === 'completed'
+      ? `Ур. ${u.level} · 🎖 ${u.achievements}`
+      : `Ур. ${u.level}`;
+
+    return `
+      <div class="top-row ${u.isMe ? 'is-me' : ''}">
+        <div class="top-rank ${rankClass}">${rankDisplay}</div>
+        <div class="top-avatar">${initials}</div>
+        <div class="top-info">
+          <div class="top-name">${escapeHtml(u.name)}</div>
+          <div class="top-sub">${sub}</div>
+        </div>
+        <div class="top-score">${categoryIcons[category]} ${u.score}${suffix}</div>
+      </div>
+    `;
+  }).join('');
+
+  const inTop = top.some(u => u.isMe);
+  if (!inTop && myRank) {
+    meEl.classList.remove('hidden');
+    document.getElementById('top-me-rank').textContent = `#${myRank}`;
+    document.getElementById('top-me-name').textContent =
+      currentUser?.displayName || currentUser?.name || 'Ты';
+    document.getElementById('top-me-score').textContent =
+      `${categoryIcons[category]} ${myScore}${suffix}`;
+  } else {
+    meEl.classList.add('hidden');
+  }
 };
 
 // ========== СОЗДАНИЕ ЗАДАНИЯ ==========
@@ -506,6 +584,7 @@ const showError = (msg) => {
 
 // ========== СОБЫТИЯ ==========
 document.addEventListener('click', (e) => {
+  // Табы
   const tab = e.target.closest('.tab');
   if (tab) {
     const tabName = tab.dataset.tab;
@@ -513,35 +592,54 @@ document.addEventListener('click', (e) => {
     tab.classList.add('active');
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById(`tab-${tabName}`)?.classList.add('active');
+
+    // Ленивая загрузка топа
+    if (tabName === 'top' && !document.querySelector('.top-row')) {
+      loadTop();
+    }
     return;
   }
 
+  // Выбор роли на стартовом экране
   const roleCard = e.target.closest('.role-card');
   if (roleCard) {
     selectRole(roleCard.dataset.role);
     return;
   }
 
+  // Кнопка смены роли в профиле
   if (e.target.id === 'btn-change-role') {
     openRoleModal();
     return;
   }
 
+  // Выбор роли в модалке
   const roleModalCard = e.target.closest('.role-modal-card');
   if (roleModalCard) {
     selectRole(roleModalCard.dataset.role, true);
     return;
   }
 
+  // Фильтры заданий
   const filter = e.target.closest('.filter');
-  if (filter) {
-    document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
+  if (filter && filter.dataset.filter) {
+    document.querySelectorAll('#task-filters .filter').forEach(f => f.classList.remove('active'));
     filter.classList.add('active');
     currentFilter = filter.dataset.filter;
     loadTasks();
     return;
   }
 
+  // Фильтры топа
+  if (filter && filter.dataset.topcat) {
+    document.querySelectorAll('.top-filters .filter').forEach(f => f.classList.remove('active'));
+    filter.classList.add('active');
+    currentTopCategory = filter.dataset.topcat;
+    loadTop();
+    return;
+  }
+
+  // Поделиться
   if (e.target.id === 'btn-share-ref') {
     const code = document.getElementById('profile-ref-code').textContent;
     const url = `https://t.me/nerv_05bot?start=ref_${code}`;
@@ -551,6 +649,7 @@ document.addEventListener('click', (e) => {
     }
   }
 
+  // Закрытие модалки задания
   if (e.target.id === 'modal-close' || e.target.id === 'modal-backdrop') {
     closeTaskModal();
   }
