@@ -3,12 +3,12 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 
 const tg = window.Telegram?.WebApp;
+let initData = '';
 let currentUser = null;
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
 const init = async () => {
   try {
-    // Проверяем, что мы внутри Telegram
     if (!tg) {
       showError('Открой это приложение через бота @nerv_05bot');
       return;
@@ -16,36 +16,36 @@ const init = async () => {
 
     tg.ready();
     tg.expand();
-
-    // Настраиваем тему под Telegram
     tg.setHeaderColor('#0a0e1a');
     tg.setBackgroundColor('#0a0e1a');
 
-    // Отправляем initData на бэк для авторизации
-    const initData = tg.initData;
+    initData = tg.initData;
     if (!initData) {
-      showError('Нет данных авторизации. Открой приложение заново.');
+      showError('Нет данных авторизации. Открой заново.');
       return;
     }
 
-    const response = await fetch('/api/app-auth', {
+    // Авторизация
+    const authRes = await fetch('/api/app-auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${response.status}`);
+    if (!authRes.ok) {
+      const err = await authRes.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${authRes.status}`);
     }
 
-    const data = await response.json();
-    if (!data.ok) {
-      throw new Error(data.error || 'Авторизация не удалась');
-    }
+    const authData = await authRes.json();
+    if (!authData.ok) throw new Error(authData.error || 'Авторизация не удалась');
 
-    currentUser = data.user;
+    currentUser = authData.user;
     renderUser(currentUser);
+
+    // Загружаем профиль
+    await loadProfile();
+
     showApp();
   } catch (e) {
     console.error('init error:', e);
@@ -53,14 +53,92 @@ const init = async () => {
   }
 };
 
-// ========== РЕНДЕР ==========
+// ========== ЗАГРУЗКА ПРОФИЛЯ ==========
+const loadProfile = async () => {
+  try {
+    const res = await fetch('/api/app-profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    const p = data.profile;
+    renderProfile(p);
+  } catch (e) {
+    console.error('loadProfile:', e);
+  }
+};
+
+// ========== РЕНДЕР ПРОФИЛЯ ==========
+const renderProfile = (p) => {
+  // Аватар
+  document.getElementById('profile-avatar').textContent = p.initials || '?';
+
+  // Имя
+  document.getElementById('profile-name').textContent = p.displayName;
+
+  // Роль
+  const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ' };
+  document.getElementById('profile-role').textContent = roleLabels[p.role] || p.role;
+
+  // VIP
+  if (p.isVip) document.getElementById('profile-vip').style.display = '';
+
+  // Модератор
+  if (p.isModerator) document.getElementById('profile-mod').style.display = '';
+
+  // Значок
+  if (p.badge) {
+    const badgeEl = document.getElementById('profile-badge');
+    badgeEl.style.display = 'flex';
+    badgeEl.textContent = p.badge.name.split(' ')[0] || '🎖';
+  }
+
+  // Уровень
+  document.getElementById('profile-level').textContent = p.level;
+  document.getElementById('profile-exp-progress').textContent = p.expProgress;
+  document.getElementById('profile-exp-needed').textContent = p.expNeeded;
+  document.getElementById('profile-exp-bar').style.width = `${p.expPercent}%`;
+
+  // Метрики
+  document.getElementById('profile-balance').textContent = `${p.balance.toLocaleString('ru')} ₽`;
+  document.getElementById('profile-reputation').textContent = p.reputation;
+  document.getElementById('profile-rank').textContent = `#${p.rank}`;
+  document.getElementById('profile-streak').textContent = `${p.loginStreak} дн.`;
+
+  // Достижения
+  document.getElementById('profile-achievements').textContent = `${p.achievements.unlocked} / ${p.achievements.total}`;
+
+  // Рефералы
+  document.getElementById('profile-referrals').textContent = p.referralCount;
+  document.getElementById('profile-ref-code').textContent = p.referralCode;
+};
+
+// ========== РЕНДЕР ПОЛЬЗОВАТЕЛЯ В ХЕДЕРЕ ==========
 const renderUser = (user) => {
   document.getElementById('user-tag').textContent = `@${user.telegramUsername || 'user'}`;
-  document.getElementById('greeting-name').textContent = user.displayName || user.name;
-  document.getElementById('stat-balance').textContent = `${user.balance} ₽`;
-  document.getElementById('stat-level').textContent = user.level || 1;
-  document.getElementById('stat-reputation').textContent = user.reputation || 0;
 };
+
+// ========== КНОПКА "ПОДЕЛИТЬСЯ" ==========
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'btn-share-ref') {
+    const code = document.getElementById('profile-ref-code').textContent;
+    const url = `https://t.me/nerv_05bot?start=ref_${code}`;
+    const text = `🚀 Присоединяйся к NERV — зарабатывай на выполнении заданий!`;
+
+    if (tg && tg.openTelegramLink) {
+      tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`);
+    } else {
+      navigator.clipboard.writeText(url);
+      tg?.showAlert?.('Ссылка скопирована!');
+    }
+  }
+});
 
 // ========== UI ==========
 const showApp = () => {
@@ -80,7 +158,6 @@ document.addEventListener('click', (e) => {
   if (!tab) return;
 
   const tabName = tab.dataset.tab;
-
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
 

@@ -27,38 +27,86 @@
       </div>
     </header>
 
-    <section class="card">
-      <h1 class="greeting">Привет, <span id="greeting-name">—</span>!</h1>
-      <div class="stats-row">
-        <div class="stat-block">
-          <span class="stat-value" id="stat-balance">0 ₽</span>
-          <span class="stat-label">Баланс</span>
-        </div>
-        <div class="stat-block">
-          <span class="stat-value" id="stat-level">1</span>
-          <span class="stat-label">Уровень</span>
-        </div>
-        <div class="stat-block">
-          <span class="stat-value" id="stat-reputation">0</span>
-          <span class="stat-label">Репутация</span>
-        </div>
-      </div>
-    </section>
-
     <nav class="nav-tabs">
-      <button class="tab active" data-tab="tasks">📋 Задания</button>
-      <button class="tab" data-tab="profile">👤 Профиль</button>
+      <button class="tab" data-tab="tasks">📋 Задания</button>
+      <button class="tab active" data-tab="profile">👤 Профиль</button>
       <button class="tab" data-tab="create">➕ Создать</button>
     </nav>
 
-    <section id="tab-tasks" class="tab-content active">
+    <!-- ЗАДАНИЯ -->
+    <section id="tab-tasks" class="tab-content">
       <p class="placeholder">Задания скоро появятся...</p>
     </section>
 
-    <section id="tab-profile" class="tab-content">
-      <p class="placeholder">Профиль в разработке...</p>
+    <!-- ПРОФИЛЬ -->
+    <section id="tab-profile" class="tab-content active">
+      <div class="profile-header">
+        <div class="avatar-wrap">
+          <div class="avatar" id="profile-avatar">?</div>
+          <div class="badge" id="profile-badge" style="display:none">🎖</div>
+        </div>
+        <h2 class="profile-name" id="profile-name">—</h2>
+        <div class="profile-tags">
+          <span class="tag tag-role" id="profile-role">—</span>
+          <span class="tag tag-vip" id="profile-vip" style="display:none">💎 VIP</span>
+          <span class="tag tag-mod" id="profile-mod" style="display:none">👮 Модератор</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="level-row">
+          <div class="level-label">
+            <span>🎖 Уровень <strong id="profile-level">1</strong></span>
+            <span class="exp-info"><span id="profile-exp-progress">0</span>/<span id="profile-exp-needed">50</span> XP</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="profile-exp-bar" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">💰</div>
+          <div class="stat-value" id="profile-balance">0 ₽</div>
+          <div class="stat-label">Баланс</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⭐</div>
+          <div class="stat-value" id="profile-reputation">0</div>
+          <div class="stat-label">Репутация</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🏅</div>
+          <div class="stat-value" id="profile-rank">#—</div>
+          <div class="stat-label">Место</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🔥</div>
+          <div class="stat-value" id="profile-streak">0 дн.</div>
+          <div class="stat-label">Streak</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-row">
+          <span>🎖 Достижения</span>
+          <strong id="profile-achievements">0 / 10</strong>
+        </div>
+        <div class="card-row">
+          <span>👥 Рефералы</span>
+          <strong id="profile-referrals">0</strong>
+        </div>
+      </div>
+
+      <div class="card referral-card">
+        <div class="referral-label">🔗 Твой реферальный код</div>
+        <div class="referral-code" id="profile-ref-code">—</div>
+        <button class="btn-share" id="btn-share-ref">📤 Поделиться</button>
+      </div>
     </section>
 
+    <!-- СОЗДАТЬ -->
     <section id="tab-create" class="tab-content">
       <p class="placeholder">Создание заданий в разработке...</p>
     </section>
