@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
       events.push({
         type: 'completed',
         icon: '🟢',
-        text: `**${r.user_display || r.user_name}** выполнил «${r.task_title}»`,
+        text: `<strong>${r.user_display || r.user_name}</strong> выполнил «${r.task_title}»`,
         meta: `+${r.amount} ₽`,
         time: r.time,
         timeAgo: timeAgo(r.time),
@@ -83,7 +83,7 @@ module.exports = async (req, res) => {
       events.push({
         type: 'new_task',
         icon: '👤',
-        text: `**${r.user_display || r.user_name}** создал «${r.title}»`,
+        text: `<strong>${r.user_display || r.user_name}</strong> создал «${r.title}»`,
         meta: `${r.reward} ₽`,
         time: r.time,
         timeAgo: timeAgo(r.time),
@@ -104,7 +104,7 @@ module.exports = async (req, res) => {
       events.push({
         type: 'achievement',
         icon: '🎖',
-        text: `**${r.user_display || r.user_name}** получил достижение «${r.ach_name}»`,
+        text: `<strong>${r.user_display || r.user_name}</strong> получил достижение «${r.ach_name}»`,
         meta: r.ach_icon || '🏅',
         time: r.time,
         timeAgo: timeAgo(r.time),
