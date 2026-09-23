@@ -117,7 +117,35 @@
 
     <!-- СОЗДАТЬ -->
     <section id="tab-create" class="tab-content">
-      <p class="placeholder">Создание заданий в разработке...</p>
+      <div class="create-header">
+        <div class="create-balance">💰 Баланс: <strong id="create-balance">0 ₽</strong></div>
+      </div>
+
+      <form id="create-form" class="create-form">
+        <div class="form-group">
+          <label class="form-label">📌 Название</label>
+          <input type="text" id="create-title" class="form-input" placeholder="Например: Сними обзор на канал" maxlength="100" required>
+          <div class="form-hint"><span id="title-count">0</span>/100</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">📝 Описание</label>
+          <textarea id="create-desc" class="form-input form-textarea" placeholder="Что нужно сделать? Опиши подробно..." maxlength="1000" required></textarea>
+          <div class="form-hint"><span id="desc-count">0</span>/1000</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">💰 Награда (₽)</label>
+          <input type="number" id="create-reward" class="form-input" placeholder="Минимум 10" min="10" max="100000" required>
+          <div class="form-hint">Комиссия платформы: <span id="commission-preview">0</span> ₽</div>
+        </div>
+
+        <button type="submit" class="btn-publish" id="btn-publish">
+          🚀 Опубликовать
+        </button>
+      </form>
+
+      <div id="create-status" class="create-status hidden"></div>
     </section>
   </main>
 
