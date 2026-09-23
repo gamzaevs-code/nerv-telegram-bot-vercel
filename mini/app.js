@@ -50,7 +50,10 @@ const loadProfile = async () => {
     });
     if (!res.ok) return;
     const data = await res.json();
-    if (data.ok) renderProfile(data.profile);
+    if (data.ok) {
+      renderProfile(data.profile);
+      document.getElementById('create-balance').textContent = `${Number(data.profile.balance).toLocaleString('ru')} ₽`;
+    }
   } catch (e) { console.error('loadProfile:', e); }
 };
 
@@ -141,13 +144,12 @@ const renderTasks = (tasks, userId, userRole) => {
   });
 };
 
-// ========== МОДАЛКА ЗАДАНИЯ ==========
+// ========== МОДАЛКА ==========
 const openTaskModal = async (taskId) => {
   currentTaskId = taskId;
   const modal = document.getElementById('task-modal');
   modal.classList.remove('hidden');
 
-  // Показываем "загрузка"
   document.getElementById('modal-id').textContent = `#${taskId}`;
   document.getElementById('modal-title').textContent = 'Загрузка...';
   document.getElementById('modal-reward').textContent = '';
@@ -190,7 +192,6 @@ const renderTaskModal = (t, userRole) => {
     document.getElementById('modal-player-row').style.display = 'none';
   }
 
-  // Голосование
   if (t.status === 'voting') {
     document.getElementById('modal-votes').style.display = '';
     const pct = Math.min((t.approve / 5) * 100, 100);
@@ -202,28 +203,20 @@ const renderTaskModal = (t, userRole) => {
     document.getElementById('modal-votes').style.display = 'none';
   }
 
-  // Кнопки действий
   const actionsEl = document.getElementById('modal-actions');
   const buttons = [];
 
   const canTake = t.status === 'open' && userRole === 'player' && !t.playerId;
   const isMyTask = t.isPlayer;
 
-  if (canTake) {
-    buttons.push(`<button class="btn-primary" data-action="take">⚡ ВЗЯТЬ ЗАДАНИЕ</button>`);
-  }
-
-  if (isMyTask && t.status === 'taken') {
-    buttons.push(`<button class="btn-secondary" data-action="abandon">↩️ Отказаться</button>`);
-  }
+  if (canTake) buttons.push(`<button class="btn-primary" data-action="take">⚡ ВЗЯТЬ ЗАДАНИЕ</button>`);
+  if (isMyTask && t.status === 'taken') buttons.push(`<button class="btn-secondary" data-action="abandon">↩️ Отказаться</button>`);
 
   if (t.status === 'voting') {
     if (t.myVote) {
       const voteLabel = t.myVote === 'approve' ? '👍 Ты проголосовал ЗА' : '👎 Ты проголосовал ПРОТИВ';
       buttons.push(`<button class="btn-disabled" disabled>${voteLabel}</button>`);
-    } else if (t.isPlayer) {
-      buttons.push(`<button class="btn-disabled" disabled>Своё задание нельзя голосовать</button>`);
-    } else if (t.isCreator) {
+    } else if (t.isPlayer || t.isCreator) {
       buttons.push(`<button class="btn-disabled" disabled>Своё задание нельзя голосовать</button>`);
     } else {
       buttons.push(`<button class="btn-approve" data-action="vote_approve">✅ ЗА</button>`);
@@ -231,13 +224,9 @@ const renderTaskModal = (t, userRole) => {
     }
   }
 
-  if (buttons.length === 0) {
-    buttons.push(`<button class="btn-secondary" disabled>Действий нет</button>`);
-  }
+  if (buttons.length === 0) buttons.push(`<button class="btn-secondary" disabled>Действий нет</button>`);
 
   actionsEl.innerHTML = buttons.join('');
-
-  // Обработчики
   actionsEl.querySelectorAll('button[data-action]').forEach(btn => {
     btn.addEventListener('click', () => handleTaskAction(btn.dataset.action));
   });
@@ -259,10 +248,7 @@ const handleTaskAction = async (action) => {
 
     tg?.HapticFeedback?.notificationOccurred?.('success');
     renderTaskModal(data.task, currentUser.role);
-
-    // Обновляем список на фоне
     loadTasks();
-    // Обновляем профиль (баланс мог измениться)
     loadProfile();
   } catch (e) {
     actionsEl.innerHTML = `<button class="btn-secondary" disabled>❌ ${escapeHtml(e.message)}</button>`;
@@ -273,6 +259,95 @@ const handleTaskAction = async (action) => {
 const closeTaskModal = () => {
   document.getElementById('task-modal').classList.add('hidden');
   currentTaskId = null;
+};
+
+// ========== СОЗДАНИЕ ЗАДАНИЯ ==========
+const initCreateForm = () => {
+  const form = document.getElementById('create-form');
+  const titleInput = document.getElementById('create-title');
+  const descInput = document.getElementById('create-desc');
+  const rewardInput = document.getElementById('create-reward');
+  const titleCount = document.getElementById('title-count');
+  const descCount = document.getElementById('desc-count');
+  const commissionPreview = document.getElementById('commission-preview');
+  const statusEl = document.getElementById('create-status');
+  const btnPublish = document.getElementById('btn-publish');
+
+  // Счётчики символов
+  titleInput.addEventListener('input', () => { titleCount.textContent = titleInput.value.length; });
+  descInput.addEventListener('input', () => { descCount.textContent = descInput.value.length; });
+
+  // Превью комиссии
+  rewardInput.addEventListener('input', () => {
+    const r = parseInt(rewardInput.value, 10) || 0;
+    const comm = Math.round(r * 0.11);
+    commissionPreview.textContent = comm;
+  });
+
+  // Отправка
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    statusEl.classList.add('hidden');
+    statusEl.classList.remove('success', 'error', 'loading');
+
+    const title = titleInput.value.trim();
+    const description = descInput.value.trim();
+    const reward = parseInt(rewardInput.value, 10);
+
+    if (!title || title.length < 3) {
+      showCreateStatus('❌ Название минимум 3 символа', 'error'); return;
+    }
+    if (!description || description.length < 5) {
+      showCreateStatus('❌ Описание минимум 5 символов', 'error'); return;
+    }
+    if (isNaN(reward) || reward < 10) {
+      showCreateStatus('❌ Минимальная награда 10 ₽', 'error'); return;
+    }
+
+    btnPublish.disabled = true;
+    showCreateStatus('🤖 Проверяю контент... Обычно 2-5 секунд', 'loading');
+
+    try {
+      const res = await fetch('/api/app-create-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, title, description, reward }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+
+      tg?.HapticFeedback?.notificationOccurred?.('success');
+      showCreateStatus(`✅ Задание #${data.task.id} создано! Проверено AI.`, 'success');
+
+      // Сброс формы
+      form.reset();
+      titleCount.textContent = '0';
+      descCount.textContent = '0';
+      commissionPreview.textContent = '0';
+
+      // Обновляем список и баланс
+      setTimeout(() => {
+        loadTasks();
+        loadProfile();
+      }, 500);
+
+      // Переключаемся на задания через 2 секунды
+      setTimeout(() => {
+        document.querySelector('.tab[data-tab="tasks"]')?.click();
+      }, 2000);
+    } catch (err) {
+      tg?.HapticFeedback?.notificationOccurred?.('error');
+      showCreateStatus(`❌ ${err.message}`, 'error');
+    } finally {
+      btnPublish.disabled = false;
+    }
+  });
+
+  const showCreateStatus = (text, type) => {
+    statusEl.textContent = text;
+    statusEl.className = `create-status ${type}`;
+    statusEl.classList.remove('hidden');
+  };
 };
 
 // ========== УТИЛИТЫ ==========
@@ -333,4 +408,7 @@ document.addEventListener('click', (e) => {
   }
 });
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  init();
+  initCreateForm();
+});
