@@ -121,6 +121,55 @@
     </section>
   </main>
 
+  <!-- МОДАЛКА: ДЕТАЛИ ЗАДАНИЯ -->
+  <div id="task-modal" class="modal hidden">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-id" id="modal-id">#0</span>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+
+      <h2 class="modal-title" id="modal-title">—</h2>
+
+      <div class="modal-reward" id="modal-reward">— ₽</div>
+
+      <div class="modal-status" id="modal-status">—</div>
+
+      <div class="modal-section">
+        <div class="modal-section-label">Описание</div>
+        <div class="modal-desc" id="modal-desc">—</div>
+      </div>
+
+      <div class="modal-info">
+        <div class="modal-info-row">
+          <span>👤 Создатель</span>
+          <strong id="modal-creator">—</strong>
+        </div>
+        <div class="modal-info-row" id="modal-player-row" style="display:none">
+          <span>🎮 Игрок</span>
+          <strong id="modal-player">—</strong>
+        </div>
+      </div>
+
+      <div class="modal-votes" id="modal-votes" style="display:none">
+        <div class="modal-votes-label">Голосование (нужно 5 👍)</div>
+        <div class="modal-votes-bar">
+          <div class="votes-progress-wrap">
+            <div class="votes-progress-fill" id="modal-votes-fill" style="width:0%"></div>
+          </div>
+          <div class="modal-votes-count" id="modal-votes-count">0 / 5</div>
+        </div>
+        <div class="modal-votes-stats">
+          <span class="votes-approve">👍 <span id="modal-approve">0</span></span>
+          <span class="votes-reject">👎 <span id="modal-reject">0</span></span>
+        </div>
+      </div>
+
+      <div class="modal-actions" id="modal-actions"></div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

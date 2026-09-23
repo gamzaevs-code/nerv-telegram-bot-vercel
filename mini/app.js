@@ -6,16 +6,14 @@ const tg = window.Telegram?.WebApp;
 let initData = '';
 let currentUser = null;
 let currentFilter = 'all';
+let currentTaskId = null;
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
 const init = async () => {
   try {
     if (!tg) { showError('Открой через @nerv_05bot'); return; }
-
-    tg.ready();
-    tg.expand();
-    tg.setHeaderColor('#0a0e1a');
-    tg.setBackgroundColor('#0a0e1a');
+    tg.ready(); tg.expand();
+    tg.setHeaderColor('#0a0e1a'); tg.setBackgroundColor('#0a0e1a');
 
     initData = tg.initData;
     if (!initData) { showError('Нет данных авторизации'); return; }
@@ -25,21 +23,16 @@ const init = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
-
     if (!authRes.ok) {
       const err = await authRes.json().catch(() => ({}));
       throw new Error(err.error || `HTTP ${authRes.status}`);
     }
-
     const authData = await authRes.json();
     if (!authData.ok) throw new Error(authData.error);
 
     currentUser = authData.user;
     renderUser(currentUser);
-
-    // Загружаем параллельно профиль и задания
     await Promise.all([loadProfile(), loadTasks()]);
-
     showApp();
   } catch (e) {
     console.error('init error:', e);
@@ -64,29 +57,23 @@ const loadProfile = async () => {
 const renderProfile = (p) => {
   document.getElementById('profile-avatar').textContent = p.initials || '?';
   document.getElementById('profile-name').textContent = p.displayName;
-
   const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ' };
   document.getElementById('profile-role').textContent = roleLabels[p.role] || p.role;
-
   if (p.isVip) document.getElementById('profile-vip').style.display = '';
   if (p.isModerator) document.getElementById('profile-mod').style.display = '';
-
   if (p.badge) {
-    const badgeEl = document.getElementById('profile-badge');
-    badgeEl.style.display = 'flex';
-    badgeEl.textContent = p.badge.name.split(' ')[0] || '🎖';
+    const b = document.getElementById('profile-badge');
+    b.style.display = 'flex';
+    b.textContent = p.badge.name.split(' ')[0] || '🎖';
   }
-
   document.getElementById('profile-level').textContent = p.level;
   document.getElementById('profile-exp-progress').textContent = p.expProgress;
   document.getElementById('profile-exp-needed').textContent = p.expNeeded;
   document.getElementById('profile-exp-bar').style.width = `${p.expPercent}%`;
-
   document.getElementById('profile-balance').textContent = `${Number(p.balance).toLocaleString('ru')} ₽`;
   document.getElementById('profile-reputation').textContent = p.reputation;
   document.getElementById('profile-rank').textContent = `#${p.rank}`;
   document.getElementById('profile-streak').textContent = `${p.loginStreak} дн.`;
-
   document.getElementById('profile-achievements').textContent = `${p.achievements.unlocked} / ${p.achievements.total}`;
   document.getElementById('profile-referrals').textContent = p.referralCount;
   document.getElementById('profile-ref-code').textContent = p.referralCode;
@@ -96,61 +83,40 @@ const renderProfile = (p) => {
 const loadTasks = async () => {
   const listEl = document.getElementById('tasks-list');
   listEl.innerHTML = '<p class="placeholder">Загрузка...</p>';
-
   try {
     const res = await fetch('/api/app-tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, filter: currentFilter }),
     });
-
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
     renderTasks(data.tasks, data.userId, data.userRole);
   } catch (e) {
     console.error('loadTasks:', e);
-    listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить задания</p>';
+    listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить</p>';
   }
 };
 
 const statusLabels = {
-  open: '🟢 Открыто',
-  taken: '🟡 Взято',
-  voting: '🗳 Голосование',
-  approved: '✅ Выполнено',
-  rejected: '❌ Отклонено',
+  open: '🟢 Открыто', taken: '🟡 Взято', voting: '🗳 Голосование',
+  approved: '✅ Выполнено', rejected: '❌ Отклонено',
 };
 
 const renderTasks = (tasks, userId, userRole) => {
   const listEl = document.getElementById('tasks-list');
-
   if (!tasks || tasks.length === 0) {
-    listEl.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon">📭</div>
-        <p>Нет заданий в этой категории</p>
-      </div>
-    `;
+    listEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📭</div><p>Нет заданий</p></div>`;
     return;
   }
-
   listEl.innerHTML = tasks.map(t => {
     const statusClass = `status-${t.status}`;
     const statusLabel = statusLabels[t.status] || t.status;
-    const isMyTask = t.playerName && userId && t.playerId === userId;
-
     let votes = '';
     if (t.status === 'voting') {
-      votes = `
-        <div class="votes-bar">
-          <span class="votes-approve">👍 ${t.approve}</span>
-          <span class="votes-reject">👎 ${t.reject}</span>
-        </div>
-      `;
+      votes = `<div class="votes-bar"><span class="votes-approve">👍 ${t.approve}</span><span class="votes-reject">👎 ${t.reject}</span></div>`;
     }
-
     return `
       <div class="task-card ${statusClass}" data-task-id="${t.id}">
         <div class="task-header">
@@ -170,27 +136,153 @@ const renderTasks = (tasks, userId, userRole) => {
     `;
   }).join('');
 
-  // Клик по карточке — пока ничего (в следующем этапе — детали)
   listEl.querySelectorAll('.task-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const id = card.dataset.taskId;
-      tg.showAlert?.(`Задание #${id} — детали в следующем этапе`);
-    });
+    card.addEventListener('click', () => openTaskModal(card.dataset.taskId));
   });
+};
+
+// ========== МОДАЛКА ЗАДАНИЯ ==========
+const openTaskModal = async (taskId) => {
+  currentTaskId = taskId;
+  const modal = document.getElementById('task-modal');
+  modal.classList.remove('hidden');
+
+  // Показываем "загрузка"
+  document.getElementById('modal-id').textContent = `#${taskId}`;
+  document.getElementById('modal-title').textContent = 'Загрузка...';
+  document.getElementById('modal-reward').textContent = '';
+  document.getElementById('modal-desc').textContent = '';
+  document.getElementById('modal-status').textContent = '';
+  document.getElementById('modal-actions').innerHTML = '<div class="modal-loading">Загрузка...</div>';
+  document.getElementById('modal-votes').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/app-task-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, taskId }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    renderTaskModal(data.task, data.userRole);
+  } catch (e) {
+    document.getElementById('modal-title').textContent = '❌ Ошибка';
+    document.getElementById('modal-desc').textContent = e.message;
+  }
+};
+
+const renderTaskModal = (t, userRole) => {
+  document.getElementById('modal-id').textContent = `#${t.id}`;
+  document.getElementById('modal-title').textContent = t.title;
+  document.getElementById('modal-reward').textContent = `${t.reward} ₽`;
+
+  const statusEl = document.getElementById('modal-status');
+  statusEl.textContent = statusLabels[t.status] || t.status;
+  statusEl.className = `modal-status ${t.status}`;
+
+  document.getElementById('modal-desc').textContent = t.description || '—';
+  document.getElementById('modal-creator').textContent = t.creatorName;
+
+  if (t.playerName) {
+    document.getElementById('modal-player-row').style.display = '';
+    document.getElementById('modal-player').textContent = t.playerName;
+  } else {
+    document.getElementById('modal-player-row').style.display = 'none';
+  }
+
+  // Голосование
+  if (t.status === 'voting') {
+    document.getElementById('modal-votes').style.display = '';
+    const pct = Math.min((t.approve / 5) * 100, 100);
+    document.getElementById('modal-votes-fill').style.width = `${pct}%`;
+    document.getElementById('modal-votes-count').textContent = `${t.approve} / 5`;
+    document.getElementById('modal-approve').textContent = t.approve;
+    document.getElementById('modal-reject').textContent = t.reject;
+  } else {
+    document.getElementById('modal-votes').style.display = 'none';
+  }
+
+  // Кнопки действий
+  const actionsEl = document.getElementById('modal-actions');
+  const buttons = [];
+
+  const canTake = t.status === 'open' && userRole === 'player' && !t.playerId;
+  const isMyTask = t.isPlayer;
+
+  if (canTake) {
+    buttons.push(`<button class="btn-primary" data-action="take">⚡ ВЗЯТЬ ЗАДАНИЕ</button>`);
+  }
+
+  if (isMyTask && t.status === 'taken') {
+    buttons.push(`<button class="btn-secondary" data-action="abandon">↩️ Отказаться</button>`);
+  }
+
+  if (t.status === 'voting') {
+    if (t.myVote) {
+      const voteLabel = t.myVote === 'approve' ? '👍 Ты проголосовал ЗА' : '👎 Ты проголосовал ПРОТИВ';
+      buttons.push(`<button class="btn-disabled" disabled>${voteLabel}</button>`);
+    } else if (t.isPlayer) {
+      buttons.push(`<button class="btn-disabled" disabled>Своё задание нельзя голосовать</button>`);
+    } else if (t.isCreator) {
+      buttons.push(`<button class="btn-disabled" disabled>Своё задание нельзя голосовать</button>`);
+    } else {
+      buttons.push(`<button class="btn-approve" data-action="vote_approve">✅ ЗА</button>`);
+      buttons.push(`<button class="btn-reject" data-action="vote_reject">❌ ПРОТИВ</button>`);
+    }
+  }
+
+  if (buttons.length === 0) {
+    buttons.push(`<button class="btn-secondary" disabled>Действий нет</button>`);
+  }
+
+  actionsEl.innerHTML = buttons.join('');
+
+  // Обработчики
+  actionsEl.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => handleTaskAction(btn.dataset.action));
+  });
+};
+
+const handleTaskAction = async (action) => {
+  if (!currentTaskId) return;
+  const actionsEl = document.getElementById('modal-actions');
+  actionsEl.innerHTML = '<div class="modal-loading">Выполняю...</div>';
+
+  try {
+    const res = await fetch('/api/app-task-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action, taskId: currentTaskId }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    tg?.HapticFeedback?.notificationOccurred?.('success');
+    renderTaskModal(data.task, currentUser.role);
+
+    // Обновляем список на фоне
+    loadTasks();
+    // Обновляем профиль (баланс мог измениться)
+    loadProfile();
+  } catch (e) {
+    actionsEl.innerHTML = `<button class="btn-secondary" disabled>❌ ${escapeHtml(e.message)}</button>`;
+    tg?.HapticFeedback?.notificationOccurred?.('error');
+  }
+};
+
+const closeTaskModal = () => {
+  document.getElementById('task-modal').classList.add('hidden');
+  currentTaskId = null;
 };
 
 // ========== УТИЛИТЫ ==========
 const escapeHtml = (str) => {
   if (!str) return '';
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 };
 
-// ========== UI ==========
 const renderUser = (user) => {
   document.getElementById('user-tag').textContent = `@${user.telegramUsername || 'user'}`;
 };
@@ -206,7 +298,7 @@ const showError = (msg) => {
   document.getElementById('error-text').textContent = msg;
 };
 
-// ========== ТАБЫ ==========
+// ========== СОБЫТИЯ ==========
 document.addEventListener('click', (e) => {
   const tab = e.target.closest('.tab');
   if (tab) {
@@ -214,12 +306,10 @@ document.addEventListener('click', (e) => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    const content = document.getElementById(`tab-${tabName}`);
-    if (content) content.classList.add('active');
+    document.getElementById(`tab-${tabName}`)?.classList.add('active');
     return;
   }
 
-  // Фильтры
   const filter = e.target.closest('.filter');
   if (filter) {
     document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
@@ -229,7 +319,6 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // Поделиться
   if (e.target.id === 'btn-share-ref') {
     const code = document.getElementById('profile-ref-code').textContent;
     const url = `https://t.me/nerv_05bot?start=ref_${code}`;
@@ -238,7 +327,10 @@ document.addEventListener('click', (e) => {
       tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`);
     }
   }
+
+  if (e.target.id === 'modal-close' || e.target.id === 'modal-backdrop') {
+    closeTaskModal();
+  }
 });
 
-// ========== СТАРТ ==========
 document.addEventListener('DOMContentLoaded', init);
