@@ -28,7 +28,7 @@ const init = async () => {
       return;
     }
 
-    const response = await fetch('/api/app/auth', {
+    const response = await fetch('/api/app-auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
