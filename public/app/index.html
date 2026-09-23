@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>NERV — Задания</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div id="loading" class="loading">
+    <div class="cyber-spinner"></div>
+    <p>Подключение к NERV...</p>
+  </div>
+
+  <div id="error" class="error hidden">
+    <h2>⚠️ Ошибка</h2>
+    <p id="error-text">Не удалось подключиться</p>
+    <button onclick="location.reload()">Повторить</button>
+  </div>
+
+  <main id="app" class="hidden">
+    <header class="app-header">
+      <div class="header-line">
+        <span class="logo">⚡ NERV</span>
+        <span class="user-tag" id="user-tag">—</span>
+      </div>
+    </header>
+
+    <section class="card">
+      <h1 class="greeting">Привет, <span id="greeting-name">—</span>!</h1>
+      <div class="stats-row">
+        <div class="stat-block">
+          <span class="stat-value" id="stat-balance">0 ₽</span>
+          <span class="stat-label">Баланс</span>
+        </div>
+        <div class="stat-block">
+          <span class="stat-value" id="stat-level">1</span>
+          <span class="stat-label">Уровень</span>
+        </div>
+        <div class="stat-block">
+          <span class="stat-value" id="stat-reputation">0</span>
+          <span class="stat-label">Репутация</span>
+        </div>
+      </div>
+    </section>
+
+    <nav class="nav-tabs">
+      <button class="tab active" data-tab="tasks">📋 Задания</button>
+      <button class="tab" data-tab="profile">👤 Профиль</button>
+      <button class="tab" data-tab="create">➕ Создать</button>
+    </nav>
+
+    <section id="tab-tasks" class="tab-content active">
+      <p class="placeholder">Задания скоро появятся...</p>
+    </section>
+
+    <section id="tab-profile" class="tab-content">
+      <p class="placeholder">Профиль в разработке...</p>
+    </section>
+
+    <section id="tab-create" class="tab-content">
+      <p class="placeholder">Создание заданий в разработке...</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
