@@ -473,3 +473,163 @@ body {
   transform: scale(0.97);
   box-shadow: 0 0 24px var(--accent-glow);
 }
+
+/* ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+   ЗАДАНИЯ
+   ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬ */
+
+.filters {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.filters::-webkit-scrollbar { display: none; }
+
+.filter {
+  flex-shrink: 0;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.filter.active {
+  background: rgba(0, 229, 255, 0.15);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.task-card:active {
+  transform: scale(0.98);
+  border-color: var(--accent);
+}
+
+.task-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--accent);
+}
+
+.task-card.status-open::before { background: var(--success); }
+.task-card.status-voting::before { background: var(--warning); }
+.task-card.status-taken::before { background: var(--accent); }
+.task-card.status-approved::before { background: var(--success); opacity: 0.5; }
+.task-card.status-rejected::before { background: var(--error); }
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.task-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  flex: 1;
+}
+
+.task-reward {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--accent);
+  white-space: nowrap;
+  text-shadow: 0 0 8px var(--accent-glow);
+}
+
+.task-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.task-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.task-status {
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+
+.task-status.open { background: rgba(0, 255, 136, 0.15); color: var(--success); }
+.task-status.taken { background: rgba(0, 229, 255, 0.15); color: var(--accent); }
+.task-status.voting { background: rgba(255, 187, 0, 0.15); color: var(--warning); }
+.task-status.approved { background: rgba(0, 255, 136, 0.15); color: var(--success); }
+.task-status.rejected { background: rgba(255, 51, 85, 0.15); color: var(--error); }
+
+.task-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.votes-bar {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.votes-approve { color: var(--success); }
+.votes-reject { color: var(--error); }
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}

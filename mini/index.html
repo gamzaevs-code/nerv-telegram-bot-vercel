@@ -28,18 +28,27 @@
     </header>
 
     <nav class="nav-tabs">
-      <button class="tab" data-tab="tasks">📋 Задания</button>
-      <button class="tab active" data-tab="profile">👤 Профиль</button>
+      <button class="tab active" data-tab="tasks">📋 Задания</button>
+      <button class="tab" data-tab="profile">👤 Профиль</button>
       <button class="tab" data-tab="create">➕ Создать</button>
     </nav>
 
     <!-- ЗАДАНИЯ -->
-    <section id="tab-tasks" class="tab-content">
-      <p class="placeholder">Задания скоро появятся...</p>
+    <section id="tab-tasks" class="tab-content active">
+      <div class="filters" id="task-filters">
+        <button class="filter active" data-filter="all">Все</button>
+        <button class="filter" data-filter="open">🟢 Открытые</button>
+        <button class="filter" data-filter="voting">🗳 Голосование</button>
+        <button class="filter" data-filter="mine">📝 Мои</button>
+      </div>
+
+      <div id="tasks-list" class="tasks-list">
+        <p class="placeholder">Загрузка заданий...</p>
+      </div>
     </section>
 
     <!-- ПРОФИЛЬ -->
-    <section id="tab-profile" class="tab-content active">
+    <section id="tab-profile" class="tab-content">
       <div class="profile-header">
         <div class="avatar-wrap">
           <div class="avatar" id="profile-avatar">?</div>
