@@ -59,11 +59,14 @@
       <div class="header-line">
         <span class="logo">⚡ NERV</span>
         <div class="header-right">
+          <span class="online-pill" id="online-pill">
+            <span class="online-dot"></span>
+            <span id="online-count">0</span>
+          </span>
           <button class="btn-notif" id="btn-notif">
             🔔
             <span class="notif-badge hidden" id="notif-badge">0</span>
           </button>
-          <span class="user-tag" id="user-tag">—</span>
         </div>
       </div>
     </header>
@@ -133,6 +136,7 @@
         </div>
       </div>
 
+      <!-- Уровень -->
       <div class="card">
         <div class="level-row">
           <div class="level-label">
@@ -145,46 +149,87 @@
         </div>
       </div>
 
+      <!-- Спарклайн -->
+      <div class="card sparkline-card" id="sparkline-card">
+        <div class="sparkline-label">📊 Активность за 7 дней</div>
+        <div class="sparkline" id="profile-sparkline"></div>
+      </div>
+
+      <!-- Метрики (кликабельные) -->
       <div class="stats-grid">
-        <div class="stat-card">
+        <div class="stat-card clickable" data-metric="balance">
           <div class="stat-icon">💰</div>
           <div class="stat-value" id="profile-balance">0 ₽</div>
           <div class="stat-label">Баланс</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card clickable" data-metric="reputation">
           <div class="stat-icon">⭐</div>
           <div class="stat-value" id="profile-reputation">0</div>
           <div class="stat-label">Репутация</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card clickable" data-metric="rank">
           <div class="stat-icon">🏅</div>
           <div class="stat-value" id="profile-rank">#—</div>
           <div class="stat-label">Место</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card clickable" data-metric="streak">
           <div class="stat-icon">🔥</div>
           <div class="stat-value" id="profile-streak">0 дн.</div>
           <div class="stat-label">Streak</div>
         </div>
       </div>
 
+      <!-- Календарь streak -->
       <div class="card">
-        <div class="card-row">
-          <span>🎖 Достижения</span>
-          <strong id="profile-achievements">0 / 10</strong>
-        </div>
-        <div class="card-row">
-          <span>👥 Рефералы</span>
-          <strong id="profile-referrals">0</strong>
+        <div class="card-label">🔥 Активность за неделю</div>
+        <div class="streak-calendar" id="streak-calendar"></div>
+      </div>
+
+      <!-- Таймер бонуса -->
+      <div class="card bonus-timer-card clickable" id="bonus-timer-card">
+        <div class="bonus-timer">
+          <span class="bonus-icon">🎁</span>
+          <span class="bonus-text">Следующий бонус через</span>
+          <span class="bonus-time" id="bonus-timer">—</span>
         </div>
       </div>
 
+      <!-- Достижения (превью) -->
+      <div class="card clickable" data-metric="achievements">
+        <div class="card-row-header">
+          <span>🎖 Достижения</span>
+          <strong id="profile-achievements">0 / 10</strong>
+        </div>
+        <div class="ach-preview" id="ach-preview"></div>
+        <div class="card-arrow">Смотреть все →</div>
+      </div>
+
+      <!-- Рефералы -->
       <div class="card referral-card">
         <div class="referral-label">🔗 Твой реферальный код</div>
         <div class="referral-code" id="profile-ref-code">—</div>
         <button class="btn-share" id="btn-share-ref">📤 Поделиться</button>
       </div>
 
+      <!-- Избранные -->
+      <div class="card clickable" id="favorites-card">
+        <div class="card-row-header">
+          <span>⭐ Избранные игроки</span>
+          <strong id="favorites-count">0</strong>
+        </div>
+        <div class="card-arrow">Смотреть →</div>
+      </div>
+
+      <!-- Онлайн -->
+      <div class="card clickable" id="online-card">
+        <div class="card-row-header">
+          <span>🟢 Сейчас онлайн</span>
+          <strong id="online-count-profile">0</strong>
+        </div>
+        <div class="card-arrow">Смотреть →</div>
+      </div>
+
+      <!-- Смена роли -->
       <div class="card">
         <button class="btn-change-role" id="btn-change-role">🎭 Сменить роль</button>
       </div>

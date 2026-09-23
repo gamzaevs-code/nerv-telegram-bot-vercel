@@ -21,8 +21,7 @@ const init = async () => {
     if (!initData) { showError('Нет данных авторизации'); return; }
 
     const authRes = await fetch('/api/app-auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
     if (!authRes.ok) {
@@ -36,8 +35,7 @@ const init = async () => {
     renderUser(currentUser);
 
     const profileRes = await fetch('/api/app-profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
     const profileData = await profileRes.json();
@@ -52,33 +50,34 @@ const init = async () => {
       renderProfile(profileData.profile);
       document.getElementById('create-balance').textContent =
         `${Number(profileData.profile.balance).toLocaleString('ru')} ₽`;
+      if (profileData.profile.onlineCount !== undefined) {
+        document.getElementById('online-count').textContent = profileData.profile.onlineCount;
+        document.getElementById('online-count-profile').textContent = profileData.profile.onlineCount;
+      }
     }
 
     await Promise.all([loadTasks(), loadTop(), loadActivity(), loadNotifications()]);
     showApp();
+
+    // Обновляем онлайн каждые 60 сек
+    setInterval(loadNotifications, 60000);
   } catch (e) {
     console.error('init error:', e);
     showError(e.message || 'Ошибка подключения');
   }
 };
 
-const hideLoadingScreen = () => {
-  document.getElementById('loading').classList.add('hidden');
-};
-
+const hideLoadingScreen = () => document.getElementById('loading').classList.add('hidden');
 const showRoleSelect = (show) => {
   const el = document.getElementById('role-select');
-  if (!el) return;
-  if (show) el.classList.remove('hidden');
-  else el.classList.add('hidden');
+  if (el) show ? el.classList.remove('hidden') : el.classList.add('hidden');
 };
 
 // ========== ПРОФИЛЬ ==========
 const loadProfile = async () => {
   try {
     const res = await fetch('/api/app-profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
     if (!res.ok) return;
@@ -116,8 +115,55 @@ const renderProfile = (p) => {
   document.getElementById('profile-rank').textContent = `#${p.rank}`;
   document.getElementById('profile-streak').textContent = `${p.loginStreak} дн.`;
   document.getElementById('profile-achievements').textContent = `${p.achievements.unlocked} / ${p.achievements.total}`;
-  document.getElementById('profile-referrals').textContent = p.referralCount;
   document.getElementById('profile-ref-code').textContent = p.referralCode;
+  document.getElementById('favorites-count').textContent = '—';
+
+  // Спарклайн
+  renderSparkline(p.sparkline);
+  // Календарь streak
+  renderStreakCalendar(p.streakDays);
+  // Таймер бонуса
+  renderBonusTimer(p.nextBonusHours);
+  // Превью достижений
+  renderAchPreview(p.achievements.preview);
+};
+
+const renderSparkline = (spark) => {
+  if (!spark) return;
+  const el = document.getElementById('profile-sparkline');
+  const max = spark.max || 1;
+  el.innerHTML = spark.data.map(v => {
+    const pct = v > 0 ? Math.max((v / max) * 100, 15) : 0;
+    return `<div class="spark-bar ${v === 0 ? 'zero' : ''}" style="height:${pct}%"></div>`;
+  }).join('');
+};
+
+const renderStreakCalendar = (days) => {
+  if (!days) return;
+  const el = document.getElementById('streak-calendar');
+  el.innerHTML = days.map(active =>
+    `<div class="streak-day ${active ? 'active' : ''}">${active ? '🔥' : ''}</div>`
+  ).join('');
+};
+
+const renderBonusTimer = (hours) => {
+  const el = document.getElementById('bonus-timer');
+  if (hours <= 0) {
+    el.textContent = 'готово!';
+    el.style.color = 'var(--success)';
+  } else {
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    el.textContent = h > 0 ? `${h} ч ${m} мин` : `${m} мин`;
+  }
+};
+
+const renderAchPreview = (preview) => {
+  if (!preview) return;
+  const el = document.getElementById('ach-preview');
+  el.innerHTML = preview.map(a =>
+    `<div class="ach-badge ${a.isUnlocked ? 'unlocked' : 'locked'}">${a.icon}</div>`
+  ).join('');
 };
 
 // ========== ЗАДАНИЯ ==========
@@ -126,8 +172,7 @@ const loadTasks = async () => {
   listEl.innerHTML = '<p class="placeholder">Загрузка...</p>';
   try {
     const res = await fetch('/api/app-tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, filter: currentFilter }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -159,6 +204,7 @@ const renderTasks = (tasks, userId, userRole) => {
     if (t.status === 'voting') {
       votes = `<div class="votes-bar"><span class="votes-approve">👍 ${t.approve}</span><span class="votes-reject">👎 ${t.reject}</span></div>`;
     }
+    const onlineDot = t.isCreatorOnline ? '<span class="online-dot-small"></span>' : '';
     return `
       <div class="task-card ${statusClass}" data-task-id="${t.id}">
         <div class="task-header">
@@ -169,7 +215,7 @@ const renderTasks = (tasks, userId, userRole) => {
         <div class="task-footer">
           <span class="task-status ${t.status}">${statusLabel}</span>
           <div class="task-meta">
-            <span>👤 ${escapeHtml(t.creatorName)}</span>
+            <span>${onlineDot}👤 ${escapeHtml(t.creatorName)}</span>
             ${t.hasVideo ? '<span>🎬</span>' : ''}
           </div>
         </div>
@@ -199,8 +245,7 @@ const openTaskModal = async (taskId) => {
 
   try {
     const res = await fetch('/api/app-task-action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, taskId }),
     });
     const data = await res.json();
@@ -278,11 +323,8 @@ const handleTaskAction = async (action) => {
   if (action === 'upload') {
     tg?.HapticFeedback?.impactOccurred?.('medium');
     const link = `https://t.me/nerv_05bot?start=upload_${currentTaskId}`;
-    if (tg?.openTelegramLink) {
-      tg.openTelegramLink(link);
-    } else {
-      window.open(link, '_blank');
-    }
+    if (tg?.openTelegramLink) tg.openTelegramLink(link);
+    else window.open(link, '_blank');
     closeTaskModal();
     return;
   }
@@ -292,8 +334,7 @@ const handleTaskAction = async (action) => {
 
   try {
     const res = await fetch('/api/app-task-action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action, taskId: currentTaskId }),
     });
     const data = await res.json();
@@ -314,20 +355,17 @@ const closeTaskModal = () => {
   currentTaskId = null;
 };
 
-// ========== ЛЕНТА АКТИВНОСТИ ==========
+// ========== ЛЕНТА ==========
 const loadActivity = async () => {
   const listEl = document.getElementById('activity-list');
   if (!listEl) return;
-
   try {
     const res = await fetch('/api/app-activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
     renderActivity(data.feed);
   } catch (e) {
     console.error('loadActivity:', e);
@@ -342,7 +380,6 @@ const renderActivity = (feed) => {
     listEl.innerHTML = '<p class="activity-empty">Пока тихо...</p>';
     return;
   }
-
   listEl.innerHTML = feed.map(ev => `
     <div class="activity-item">
       <span class="activity-icon">${ev.icon}</span>
@@ -353,32 +390,28 @@ const renderActivity = (feed) => {
   `).join('');
 };
 
-// ========== ТОП ИГРОКОВ ==========
+// ========== ТОП ==========
 const loadTop = async () => {
   const listEl = document.getElementById('top-list');
   if (!listEl) return;
   listEl.innerHTML = '<p class="placeholder">Загрузка рейтинга...</p>';
-
   try {
     const res = await fetch('/api/app-leaderboard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, category: currentTopCategory }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
     renderTop(data.top, data.myRank, data.myScore, data.category);
   } catch (e) {
     console.error('loadTop:', e);
-    listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить рейтинг</p>';
+    listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить</p>';
   }
 };
 
 const renderTop = (top, myRank, myScore, category) => {
   const listEl = document.getElementById('top-list');
   const meEl = document.getElementById('top-me');
-
   if (!top || top.length === 0) {
     listEl.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🏆</div><p>Пока нет игроков</p></div>';
     meEl.classList.add('hidden');
@@ -386,25 +419,14 @@ const renderTop = (top, myRank, myScore, category) => {
   }
 
   const medals = ['🥇', '🥈', '🥉'];
-  const categoryIcons = {
-    reputation: '⭐',
-    balance: '💰',
-    completed: '✅',
-  };
-  const suffix = {
-    reputation: '',
-    balance: ' ₽',
-    completed: '',
-  }[category] || '';
+  const categoryIcons = { reputation: '⭐', balance: '💰', completed: '✅' };
+  const suffix = { reputation: '', balance: ' ₽', completed: '' }[category] || '';
 
   listEl.innerHTML = top.map(u => {
     const rankClass = u.rank === 1 ? 'gold' : u.rank === 2 ? 'silver' : u.rank === 3 ? 'bronze' : '';
     const rankDisplay = u.rank <= 3 ? medals[u.rank - 1] : `#${u.rank}`;
     const initials = u.name.split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
-    const sub = category === 'completed'
-      ? `Ур. ${u.level} · 🎖 ${u.achievements}`
-      : `Ур. ${u.level}`;
-
+    const sub = category === 'completed' ? `Ур. ${u.level} · 🎖 ${u.achievements}` : `Ур. ${u.level}`;
     return `
       <div class="top-row ${u.isMe ? 'is-me' : ''}">
         <div class="top-rank ${rankClass}">${rankDisplay}</div>
@@ -422,10 +444,8 @@ const renderTop = (top, myRank, myScore, category) => {
   if (!inTop && myRank) {
     meEl.classList.remove('hidden');
     document.getElementById('top-me-rank').textContent = `#${myRank}`;
-    document.getElementById('top-me-name').textContent =
-      currentUser?.displayName || currentUser?.name || 'Ты';
-    document.getElementById('top-me-score').textContent =
-      `${categoryIcons[category]} ${myScore}${suffix}`;
+    document.getElementById('top-me-name').textContent = currentUser?.displayName || currentUser?.name || 'Ты';
+    document.getElementById('top-me-score').textContent = `${categoryIcons[category]} ${myScore}${suffix}`;
   } else {
     meEl.classList.add('hidden');
   }
@@ -435,13 +455,11 @@ const renderTop = (top, myRank, myScore, category) => {
 const loadNotifications = async () => {
   try {
     const res = await fetch('/api/app-notifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
     const data = await res.json();
     if (!data.ok) return;
-
     unreadCount = data.unreadCount;
     updateNotifBadge();
   } catch (e) { console.error('loadNotifications:', e); }
@@ -462,8 +480,7 @@ const openNotifModal = async () => {
   let notifications = [];
   try {
     const res = await fetch('/api/app-notifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
     const data = await res.json();
@@ -490,14 +507,12 @@ const openNotifModal = async () => {
       </div>
     `;
     document.body.appendChild(modal);
-
     document.getElementById('notif-modal-backdrop').addEventListener('click', closeNotifModal);
     document.getElementById('notif-modal-close').addEventListener('click', closeNotifModal);
     document.getElementById('notif-mark-read').addEventListener('click', markAllRead);
   }
 
   const listEl = document.getElementById('notif-list');
-
   if (!notifications || notifications.length === 0) {
     listEl.innerHTML = '<div class="notif-empty">📭 Уведомлений пока нет</div>';
   } else {
@@ -510,28 +525,249 @@ const openNotifModal = async () => {
       </div>
     `).join('');
   }
-
   modal.classList.remove('hidden');
-
   setTimeout(markAllRead, 1500);
 };
 
 const closeNotifModal = () => {
-  const modal = document.getElementById('notif-modal');
-  if (modal) modal.classList.add('hidden');
+  const m = document.getElementById('notif-modal');
+  if (m) m.classList.add('hidden');
 };
 
 const markAllRead = async () => {
   try {
     await fetch('/api/app-notifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'mark_all_read' }),
     });
     unreadCount = 0;
     updateNotifBadge();
   } catch (e) { console.error('markAllRead:', e); }
 };
+
+// ========== МЕТРИКИ (кликабельные) ==========
+const openMetricModal = async (metric) => {
+  let data = null;
+  try {
+    const res = await fetch('/api/app-metric', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, metric }),
+    });
+    const json = await res.json();
+    if (json.ok) data = json;
+  } catch (e) { console.error(e); }
+
+  if (!data) return;
+
+  let modal = document.getElementById('metric-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'metric-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="metric-modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-id" id="metric-title">📊</span>
+          <button class="modal-close" id="metric-modal-close">✕</button>
+        </div>
+        <div id="metric-body"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('metric-modal-backdrop').addEventListener('click', closeMetricModal);
+    document.getElementById('metric-modal-close').addEventListener('click', closeMetricModal);
+  }
+
+  document.getElementById('metric-title').textContent = data.title || '📊';
+  const body = document.getElementById('metric-body');
+
+  if (metric === 'balance' || metric === 'reputation') {
+    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>` + data.rows.map(r =>
+      `<div class="modal-info-row" style="padding:12px 0;border-bottom:1px solid var(--border);">
+        <span>${r.label}</span>
+        <strong>${r.value}</strong>
+      </div>`
+    ).join('');
+  }
+
+  if (metric === 'rank' && data.top) {
+    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Ты на #${data.myRank} месте</p>` +
+      data.top.map(u => {
+        const medals = ['🥇', '🥈', '🥉'];
+        const rankIcon = u.rank <= 3 ? medals[u.rank - 1] : `#${u.rank}`;
+        return `<div class="user-row">
+          <div class="user-avatar-sm">${rankIcon}</div>
+          <div class="user-info">
+            <div class="user-name">${escapeHtml(u.name)}</div>
+            <div class="user-sub">⭐ ${u.reputation} · Ур. ${u.level}</div>
+          </div>
+        </div>`;
+      }).join('');
+  }
+
+  if (metric === 'streak' && data.days) {
+    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Твоя активность за 7 дней</p>
+      <div class="streak-calendar">${data.days.map(d =>
+        `<div class="streak-day ${d.active ? 'active' : ''}">${d.active ? '🔥' : ''}</div>`
+      ).join('')}</div>`;
+  }
+
+  if (metric === 'achievements' && data.achievements) {
+    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
+        Открыто: ${data.achievements.filter(a => a.isUnlocked).length} из ${data.achievements.length}
+      </p>` +
+      data.achievements.map(a => `
+        <div class="user-row" style="cursor:default;">
+          <div class="user-avatar-sm ${a.isUnlocked ? '' : ''}" style="font-size:20px;${a.isUnlocked ? '' : 'filter:grayscale(1);opacity:0.4;'}">${a.icon}</div>
+          <div class="user-info">
+            <div class="user-name">${escapeHtml(a.name)}</div>
+            <div class="user-sub">${escapeHtml(a.description || '')} · 🎁 ${a.reward} ₽</div>
+          </div>
+          ${a.isUnlocked ? '<span style="color:var(--success);font-size:20px;">✓</span>' : '<span style="color:var(--text-muted);font-size:18px;">🔒</span>'}
+        </div>
+      `).join('');
+  }
+
+  modal.classList.remove('hidden');
+};
+
+const closeMetricModal = () => {
+  const m = document.getElementById('metric-modal');
+  if (m) m.classList.add('hidden');
+};
+
+// ========== ОНЛАЙН / ИЗБРАННЫЕ ==========
+const openOnlineModal = async () => {
+  let online = [];
+  try {
+    const res = await fetch('/api/app-online', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (data.ok) online = data.online;
+  } catch (e) { console.error(e); }
+
+  let modal = document.getElementById('online-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'online-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="online-modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-id">🟢 СЕЙЧАС ОНЛАЙН</span>
+          <button class="modal-close" id="online-modal-close">✕</button>
+        </div>
+        <div id="online-body"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('online-modal-backdrop').addEventListener('click', closeOnlineModal);
+    document.getElementById('online-modal-close').addEventListener('click', closeOnlineModal);
+  }
+
+  const body = document.getElementById('online-body');
+  if (!online || online.length === 0) {
+    body.innerHTML = '<div class="notif-empty">😴 Никого нет онлайн</div>';
+  } else {
+    body.innerHTML = online.map(u => `
+      <div class="user-row" onclick="addFavorite(${u.id})">
+        <div class="user-avatar-sm">
+          ${u.name.split(' ').slice(0,2).map(w=>w[0]?w[0].toUpperCase():'').join('')}
+          <div class="user-online-dot"></div>
+        </div>
+        <div class="user-info">
+          <div class="user-name">${escapeHtml(u.name)}</div>
+          <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
+        </div>
+        <div class="user-action">⭐</div>
+      </div>
+    `).join('');
+  }
+
+  modal.classList.remove('hidden');
+};
+
+const closeOnlineModal = () => {
+  const m = document.getElementById('online-modal');
+  if (m) m.classList.add('hidden');
+};
+
+const openFavoritesModal = async () => {
+  let favorites = [];
+  try {
+    const res = await fetch('/api/app-favorites', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (data.ok) favorites = data.favorites;
+  } catch (e) { console.error(e); }
+
+  let modal = document.getElementById('fav-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'fav-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="fav-modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-id">⭐ ИЗБРАННЫЕ</span>
+          <button class="modal-close" id="fav-modal-close">✕</button>
+        </div>
+        <div id="fav-body"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('fav-modal-backdrop').addEventListener('click', closeFavModal);
+    document.getElementById('fav-modal-close').addEventListener('click', closeFavModal);
+  }
+
+  const body = document.getElementById('fav-body');
+  if (!favorites || favorites.length === 0) {
+    body.innerHTML = '<div class="notif-empty">📭 Избранных пока нет</div>';
+  } else {
+    body.innerHTML = favorites.map(u => `
+      <div class="user-row" onclick="removeFavorite(${u.id})">
+        <div class="user-avatar-sm">
+          ${u.name.split(' ').slice(0,2).map(w=>w[0]?w[0].toUpperCase():'').join('')}
+          ${u.isOnline ? '<div class="user-online-dot"></div>' : ''}
+        </div>
+        <div class="user-info">
+          <div class="user-name">${escapeHtml(u.name)}</div>
+          <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
+        </div>
+        <div class="user-action">✕</div>
+      </div>
+    `).join('');
+  }
+
+  modal.classList.remove('hidden');
+};
+
+const closeFavModal = () => {
+  const m = document.getElementById('fav-modal');
+  if (m) m.classList.add('hidden');
+};
+
+window.addFavorite = async (targetId) => {
+  try {
+    await fetch('/api/app-favorites', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'toggle', targetId }),
+    });
+    tg?.HapticFeedback?.notificationOccurred?.('success');
+  } catch (e) { console.error(e); }
+};
+
+window.removeFavorite = window.addFavorite;
 
 // ========== СОЗДАНИЕ ЗАДАНИЯ ==========
 const initCreateForm = () => {
@@ -549,11 +785,9 @@ const initCreateForm = () => {
 
   titleInput.addEventListener('input', () => { titleCount.textContent = titleInput.value.length; });
   descInput.addEventListener('input', () => { descCount.textContent = descInput.value.length; });
-
   rewardInput.addEventListener('input', () => {
     const r = parseInt(rewardInput.value, 10) || 0;
-    const comm = Math.round(r * 0.11);
-    commissionPreview.textContent = comm;
+    commissionPreview.textContent = Math.round(r * 0.11);
   });
 
   form.addEventListener('submit', async (e) => {
@@ -574,8 +808,7 @@ const initCreateForm = () => {
 
     try {
       const res = await fetch('/api/app-create-task', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initData, title, description, reward }),
       });
       const data = await res.json();
@@ -613,22 +846,18 @@ const selectRole = async (role, fromModal = false) => {
     const card = document.querySelector(`.role-card[data-role="${role}"]`);
     if (card) card.classList.add('selected');
   }
-
   tg?.HapticFeedback?.impactOccurred?.('medium');
 
   try {
     const res = await fetch('/api/app-change-role', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, role }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
 
     tg?.HapticFeedback?.notificationOccurred?.('success');
-
     if (fromModal) closeRoleModal();
-
     if (currentUser) currentUser.role = role;
     await loadProfile();
     await loadTasks();
@@ -660,21 +889,16 @@ const openRoleModal = () => {
           <button class="modal-close" id="role-modal-close">✕</button>
         </div>
         <h2 class="modal-title">Выбери новую роль</h2>
-        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
-          Можно менять когда угодно
-        </p>
         <div class="role-modal-cards" id="role-modal-cards"></div>
       </div>
     `;
     document.body.appendChild(modal);
-
     document.getElementById('role-modal-backdrop').addEventListener('click', closeRoleModal);
     document.getElementById('role-modal-close').addEventListener('click', closeRoleModal);
   }
 
   const cardsEl = document.getElementById('role-modal-cards');
   const currentRole = currentUser?.role || 'viewer';
-
   cardsEl.innerHTML = `
     <div class="role-modal-card ${currentRole === 'player' ? 'current' : ''}" data-role="player">
       <div class="role-icon-sm">🎮</div>
@@ -693,32 +917,27 @@ const openRoleModal = () => {
       ${currentRole === 'viewer' ? '<span class="role-badge-current">СЕЙЧАС</span>' : ''}
     </div>
   `;
-
   modal.classList.remove('hidden');
 };
 
 const closeRoleModal = () => {
-  const modal = document.getElementById('role-modal');
-  if (modal) modal.classList.add('hidden');
+  const m = document.getElementById('role-modal');
+  if (m) m.classList.add('hidden');
 };
 
 // ========== УТИЛИТЫ ==========
 const escapeHtml = (str) => {
   if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 };
-
 const renderUser = (user) => {
-  document.getElementById('user-tag').textContent = `@${user.telegramUsername || 'user'}`;
+  // Убрали user-tag из шапки, но функция остаётся для совместимости
 };
-
 const showApp = () => {
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
 };
-
 const showError = (msg) => {
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('error').classList.remove('hidden');
@@ -727,14 +946,8 @@ const showError = (msg) => {
 
 // ========== СОБЫТИЯ ==========
 document.addEventListener('click', (e) => {
-  // Открытие уведомлений
-  if (e.target.closest('#btn-notif')) {
-    tg?.HapticFeedback?.impactOccurred?.('light');
-    openNotifModal();
-    return;
-  }
+  if (e.target.closest('#btn-notif')) { tg?.HapticFeedback?.impactOccurred?.('light'); openNotifModal(); return; }
 
-  // Табы
   const tab = e.target.closest('.tab');
   if (tab) {
     const tabName = tab.dataset.tab;
@@ -742,41 +955,26 @@ document.addEventListener('click', (e) => {
     tab.classList.add('active');
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById(`tab-${tabName}`)?.classList.add('active');
-
-    if (tabName === 'top' && !document.querySelector('.top-row')) {
-      loadTop();
-    }
+    if (tabName === 'top' && !document.querySelector('.top-row')) loadTop();
     return;
   }
 
-  // Обновление ленты по клику на заголовок
-  if (e.target.closest('.activity-title')) {
-    tg?.HapticFeedback?.impactOccurred?.('light');
-    loadActivity();
-    return;
-  }
+  if (e.target.closest('.activity-title')) { tg?.HapticFeedback?.impactOccurred?.('light'); loadActivity(); return; }
 
-  // Выбор роли на стартовом экране
+  const metricCard = e.target.closest('[data-metric]');
+  if (metricCard) { openMetricModal(metricCard.dataset.metric); return; }
+
+  if (e.target.id === 'online-card') { openOnlineModal(); return; }
+  if (e.target.id === 'favorites-card') { openFavoritesModal(); return; }
+
   const roleCard = e.target.closest('.role-card');
-  if (roleCard) {
-    selectRole(roleCard.dataset.role);
-    return;
-  }
+  if (roleCard) { selectRole(roleCard.dataset.role); return; }
 
-  // Кнопка смены роли в профиле
-  if (e.target.id === 'btn-change-role') {
-    openRoleModal();
-    return;
-  }
+  if (e.target.id === 'btn-change-role') { openRoleModal(); return; }
 
-  // Выбор роли в модалке
   const roleModalCard = e.target.closest('.role-modal-card');
-  if (roleModalCard) {
-    selectRole(roleModalCard.dataset.role, true);
-    return;
-  }
+  if (roleModalCard) { selectRole(roleModalCard.dataset.role, true); return; }
 
-  // Фильтры заданий
   const filter = e.target.closest('.filter');
   if (filter && filter.dataset.filter) {
     document.querySelectorAll('#task-filters .filter').forEach(f => f.classList.remove('active'));
@@ -785,8 +983,6 @@ document.addEventListener('click', (e) => {
     loadTasks();
     return;
   }
-
-  // Фильтры топа
   if (filter && filter.dataset.topcat) {
     document.querySelectorAll('.top-filters .filter').forEach(f => f.classList.remove('active'));
     filter.classList.add('active');
@@ -795,20 +991,14 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // Поделиться реферальным кодом
   if (e.target.id === 'btn-share-ref') {
     const code = document.getElementById('profile-ref-code').textContent;
     const url = `https://t.me/nerv_05bot?start=ref_${code}`;
     const text = `🚀 Присоединяйся к NERV — зарабатывай на выполнении заданий!`;
-    if (tg?.openTelegramLink) {
-      tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`);
-    }
+    if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`);
   }
 
-  // Закрытие модалки задания
-  if (e.target.id === 'modal-close' || e.target.id === 'modal-backdrop') {
-    closeTaskModal();
-  }
+  if (e.target.id === 'modal-close' || e.target.id === 'modal-backdrop') closeTaskModal();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
