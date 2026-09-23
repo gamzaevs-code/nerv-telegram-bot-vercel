@@ -53,7 +53,7 @@ const init = async () => {
         `${Number(profileData.profile.balance).toLocaleString('ru')} ₽`;
     }
 
-    await Promise.all([loadTasks(), loadTop()]);
+    await Promise.all([loadTasks(), loadTop(), loadActivity()]);
     showApp();
   } catch (e) {
     console.error('init error:', e);
@@ -133,6 +133,8 @@ const loadTasks = async () => {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
     renderTasks(data.tasks, data.userId, data.userRole);
+    // Обновляем ленту синхронно
+    loadActivity();
   } catch (e) {
     console.error('loadTasks:', e);
     listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить</p>';
@@ -310,6 +312,45 @@ const handleTaskAction = async (action) => {
 const closeTaskModal = () => {
   document.getElementById('task-modal').classList.add('hidden');
   currentTaskId = null;
+};
+
+// ========== ЛЕНТА АКТИВНОСТИ ==========
+const loadActivity = async () => {
+  const listEl = document.getElementById('activity-list');
+  if (!listEl) return;
+
+  try {
+    const res = await fetch('/api/app-activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    renderActivity(data.feed);
+  } catch (e) {
+    console.error('loadActivity:', e);
+    listEl.innerHTML = '<p class="activity-empty">Пока тихо...</p>';
+  }
+};
+
+const renderActivity = (feed) => {
+  const listEl = document.getElementById('activity-list');
+  if (!listEl) return;
+  if (!feed || feed.length === 0) {
+    listEl.innerHTML = '<p class="activity-empty">Пока тихо...</p>';
+    return;
+  }
+
+  listEl.innerHTML = feed.map(ev => `
+    <div class="activity-item">
+      <span class="activity-icon">${ev.icon}</span>
+      <span class="activity-text">${ev.text}</span>
+      ${ev.meta ? `<span class="activity-meta">${escapeHtml(ev.meta)}</span>` : ''}
+      <span class="activity-time">${ev.timeAgo}</span>
+    </div>
+  `).join('');
 };
 
 // ========== ТОП ИГРОКОВ ==========
@@ -593,10 +634,16 @@ document.addEventListener('click', (e) => {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById(`tab-${tabName}`)?.classList.add('active');
 
-    // Ленивая загрузка топа
     if (tabName === 'top' && !document.querySelector('.top-row')) {
       loadTop();
     }
+    return;
+  }
+
+  // Обновление ленты по клику на заголовок
+  if (e.target.closest('.activity-title')) {
+    tg?.HapticFeedback?.impactOccurred?.('light');
+    loadActivity();
     return;
   }
 
@@ -639,7 +686,7 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // Поделиться
+  // Поделиться реферальным кодом
   if (e.target.id === 'btn-share-ref') {
     const code = document.getElementById('profile-ref-code').textContent;
     const url = `https://t.me/nerv_05bot?start=ref_${code}`;

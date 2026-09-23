@@ -91,14 +91,26 @@
       </div>
     </section>
     
-    <!-- ЗАДАНИЯ -->
+   <!-- ЗАДАНИЯ -->
     <section id="tab-tasks" class="tab-content active">
+      <div class="activity-feed" id="activity-feed">
+        <div class="activity-title">🔥 Сейчас происходит</div>
+        <div class="activity-list" id="activity-list">
+          <p class="activity-loading">Загрузка...</p>
+        </div>
+      </div>
+
       <div class="filters" id="task-filters">
         <button class="filter active" data-filter="all">Все</button>
         <button class="filter" data-filter="open">🟢 Открытые</button>
         <button class="filter" data-filter="voting">🗳 Голосование</button>
         <button class="filter" data-filter="mine">📝 Мои</button>
       </div>
+
+      <div id="tasks-list" class="tasks-list">
+        <p class="placeholder">Загрузка заданий...</p>
+      </div>
+    </section>
 
       <div id="tasks-list" class="tasks-list">
         <p class="placeholder">Загрузка заданий...</p>
