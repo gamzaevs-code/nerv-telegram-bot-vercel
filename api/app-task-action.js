@@ -9,8 +9,14 @@ const {
   checkAchievements,
   notifyLevelUp,
   notifyAchievements,
+  calcCommission,
+  recordPlatformEarning,
+  getStreakMultiplier,
+  processReferralEarnings,
+  notifyReferralEarnings,
 } = require('../lib/helpers');
 const { sendMessage } = require('../lib/telegram');
+const { applyBoost } = require('../lib/shop');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
@@ -57,12 +63,14 @@ const getTaskDetail = async (taskId, userId) => {
   const approve = vr.rows.find(x => x.value === 'approve')?.cnt || 0;
   const reject = vr.rows.find(x => x.value === 'reject')?.cnt || 0;
 
-  // Проверяем, голосовал ли текущий пользователь
   const votedRes = await query(
     `SELECT value FROM "Vote" WHERE "taskId"=$1 AND "voterId"=$2`,
     [taskId, userId]
   );
   const myVote = votedRes.rows[0]?.value || null;
+
+  const isPlayer = t.playerIdRef === userId;
+  const isCreator = t.creatorId === userId;
 
   return {
     id: t.id,
@@ -81,8 +89,9 @@ const getTaskDetail = async (taskId, userId) => {
     videoUrl: t.videoUrl,
     deadlineAt: t.deadlineAt,
     createdAt: t.createdAt,
-    isCreator: t.creatorId === userId,
-    isPlayer: t.playerIdRef === userId,
+    isCreator,
+    isPlayer,
+    canUpload: isPlayer && t.status === 'taken',
   };
 };
 
@@ -113,7 +122,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, task: detail, userRole: user.role });
     }
 
-    // ==== Действия ====
+    // ==== Взять задание ====
     if (action === 'take') {
       if (!user.roleChosen) return res.status(400).json({ ok: false, error: 'Сначала выбери роль в боте' });
       if (user.role !== 'player') return res.status(400).json({ ok: false, error: 'Только игроки могут брать задания' });
@@ -128,7 +137,6 @@ module.exports = async (req, res) => {
 
       const t = r.rows[0];
 
-      // XP, квесты, ачивки
       try {
         const xpRes = await addExperience(user.id, 5);
         await checkDailyQuests(user.id, 'task_taken', 1);
@@ -137,7 +145,6 @@ module.exports = async (req, res) => {
         await notifyAchievements(user.id, achs, sendMessage);
       } catch (e) { console.error('after take:', e); }
 
-      // Уведомляем автора
       const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
       if (cr.rows[0]?.telegramChatId) {
         await sendMessage(cr.rows[0].telegramChatId, `🎯 *Задание взято!*\n📌 ${t.title}\n👤 ${user.name}`);
@@ -147,6 +154,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, action: 'taken', task: detail });
     }
 
+    // ==== Отказаться ====
     if (action === 'abandon') {
       const r = await query(
         `UPDATE "Task" SET status='open', "playerId"=NULL
@@ -166,6 +174,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, action: 'abandoned', task: detail });
     }
 
+    // ==== Голосование ====
     if (action === 'vote_approve' || action === 'vote_reject') {
       const value = action === 'vote_approve' ? 'approve' : 'reject';
 
@@ -197,15 +206,12 @@ module.exports = async (req, res) => {
       const approve = vr.rows.find(x => x.value === 'approve')?.cnt || 0;
 
       if (approve >= 5) {
-        // Автозавершение — вызываем логику из tasks.js невозможно напрямую,
-        // поэтому дублируем минимально здесь
-        const tr = await query(`UPDATE "Task" SET status='approved' WHERE id=$1 AND status='voting' RETURNING *`, [taskId]);
+        const tr = await query(
+          `UPDATE "Task" SET status='approved' WHERE id=$1 AND status='voting' RETURNING *`,
+          [taskId]
+        );
         if (tr.rowCount > 0) {
           const t = tr.rows[0];
-          const { calcCommission, recordPlatformEarning } = require('../lib/helpers');
-          const { applyBoost } = require('../lib/shop');
-          const { processReferralEarnings, notifyReferralEarnings } = require('../lib/helpers');
-          const { getStreakMultiplier } = require('../lib/helpers');
 
           const plr = await query('SELECT "loginStreak" FROM "User" WHERE id=$1', [t.playerId]);
           const mult = getStreakMultiplier(plr.rows[0]?.loginStreak || 0);
@@ -236,7 +242,11 @@ module.exports = async (req, res) => {
 
           const pl = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.playerId]);
           if (pl.rows[0]?.telegramChatId) {
-            await sendMessage(pl.rows[0].telegramChatId, `🎉 *Задание выполнено!*\n📌 ${t.title}\n💰 +${netAmount} ₽`);
+            let m = `🎉 *Задание выполнено!*\n📌 ${t.title}\n💰 +${netAmount} ₽`;
+            if (commission > 0) m += `\n_Комиссия: -${commission} ₽_`;
+            if (mult > 1) m += `\n🔥 _Streak ×${mult}_`;
+            if (boost) m += `\n⚡ _${boost.name}_`;
+            await sendMessage(pl.rows[0].telegramChatId, m);
           }
           const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
           if (cr.rows[0]?.telegramChatId) {

@@ -33,7 +33,6 @@ const init = async () => {
     currentUser = authData.user;
     renderUser(currentUser);
 
-    // Проверяем, выбрана ли роль
     const profileRes = await fetch('/api/app-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -42,7 +41,6 @@ const init = async () => {
     const profileData = await profileRes.json();
 
     if (profileData.ok && !profileData.profile.roleChosen) {
-      // Роль не выбрана — показываем экран выбора
       hideLoadingScreen();
       showRoleSelect(true);
       return;
@@ -245,8 +243,10 @@ const renderTaskModal = (t, userRole) => {
   const buttons = [];
   const canTake = t.status === 'open' && userRole === 'player' && !t.playerId;
   const isMyTask = t.isPlayer;
+  const canUpload = t.canUpload;
 
   if (canTake) buttons.push(`<button class="btn-primary" data-action="take">⚡ ВЗЯТЬ ЗАДАНИЕ</button>`);
+  if (canUpload) buttons.push(`<button class="btn-primary" data-action="upload">📹 ЗАГРУЗИТЬ ВИДЕО</button>`);
   if (isMyTask && t.status === 'taken') buttons.push(`<button class="btn-secondary" data-action="abandon">↩️ Отказаться</button>`);
 
   if (t.status === 'voting') {
@@ -271,6 +271,20 @@ const renderTaskModal = (t, userRole) => {
 
 const handleTaskAction = async (action) => {
   if (!currentTaskId) return;
+
+  // Загрузка видео — закрываем Mini App и открываем бота
+  if (action === 'upload') {
+    tg?.HapticFeedback?.impactOccurred?.('medium');
+    const link = `https://t.me/nerv_05bot?start=upload_${currentTaskId}`;
+    if (tg?.openTelegramLink) {
+      tg.openTelegramLink(link);
+    } else {
+      window.open(link, '_blank');
+    }
+    closeTaskModal();
+    return;
+  }
+
   const actionsEl = document.getElementById('modal-actions');
   actionsEl.innerHTML = '<div class="modal-loading">Выполняю...</div>';
 
@@ -492,7 +506,6 @@ const showError = (msg) => {
 
 // ========== СОБЫТИЯ ==========
 document.addEventListener('click', (e) => {
-  // Табы
   const tab = e.target.closest('.tab');
   if (tab) {
     const tabName = tab.dataset.tab;
@@ -503,27 +516,23 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // Выбор роли на стартовом экране
   const roleCard = e.target.closest('.role-card');
   if (roleCard) {
     selectRole(roleCard.dataset.role);
     return;
   }
 
-  // Кнопка смены роли в профиле
   if (e.target.id === 'btn-change-role') {
     openRoleModal();
     return;
   }
 
-  // Выбор роли в модалке
   const roleModalCard = e.target.closest('.role-modal-card');
   if (roleModalCard) {
     selectRole(roleModalCard.dataset.role, true);
     return;
   }
 
-  // Фильтры
   const filter = e.target.closest('.filter');
   if (filter) {
     document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
@@ -533,7 +542,6 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // Поделиться
   if (e.target.id === 'btn-share-ref') {
     const code = document.getElementById('profile-ref-code').textContent;
     const url = `https://t.me/nerv_05bot?start=ref_${code}`;
@@ -543,7 +551,6 @@ document.addEventListener('click', (e) => {
     }
   }
 
-  // Закрытие модалки задания
   if (e.target.id === 'modal-close' || e.target.id === 'modal-backdrop') {
     closeTaskModal();
   }
