@@ -31,7 +31,6 @@ const verifyInitData = (initData) => {
   return JSON.parse(userJson);
 };
 
-// Формула уровня (дублируем из helpers)
 const calcLevel = (exp) => Math.floor(Math.sqrt(exp / 50)) + 1;
 
 module.exports = async (req, res) => {
@@ -49,7 +48,7 @@ module.exports = async (req, res) => {
     const userRes = await query(
       `SELECT id, name, "displayName", balance, reputation, role,
               level, experience, "loginStreak", "isModerator",
-              "referralCode", "createdAt"
+              "referralCode", "createdAt", "roleChosen"
        FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
@@ -138,6 +137,7 @@ module.exports = async (req, res) => {
         balance: user.balance,
         reputation: user.reputation,
         role: user.role,
+        roleChosen: user.roleChosen,
         isModerator: user.isModerator,
         isVip,
         level,

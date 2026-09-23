@@ -1012,3 +1012,186 @@ body {
   color: var(--accent);
   border: 1px solid rgba(0, 229, 255, 0.3);
 }
+
+/* ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+   ЭКРАН ВЫБОРА РОЛИ
+   ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬ */
+
+.role-select {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.role-select.hidden { display: none; }
+
+.role-select-content {
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.role-select-logo {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 3px;
+  text-shadow: 0 0 20px var(--accent-glow);
+  margin-bottom: 24px;
+}
+
+.role-select-title {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.role-select-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.role-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.role-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.role-card:active {
+  transform: scale(0.98);
+}
+
+.role-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.role-icon {
+  font-size: 32px;
+  margin-bottom: 4px;
+}
+
+.role-name {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.role-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.role-select-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* Кнопка смены роли в профиле */
+.btn-change-role {
+  width: 100%;
+  padding: 14px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border) !important;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: all 0.15s ease;
+}
+
+.btn-change-role:active {
+  transform: scale(0.98);
+  border-color: var(--accent) !important;
+  color: var(--accent);
+}
+
+/* Модалка смены роли (переиспользует task-modal) */
+.role-modal-content {
+  padding-bottom: calc(30px + env(safe-area-inset-bottom)) !important;
+}
+
+.role-modal-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.role-modal-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: all 0.15s ease;
+}
+
+.role-modal-card:active {
+  transform: scale(0.98);
+  border-color: var(--accent);
+}
+
+.role-modal-card.current {
+  border-color: var(--accent);
+  background: rgba(0, 229, 255, 0.1);
+}
+
+.role-modal-card .role-icon-sm {
+  font-size: 28px;
+}
+
+.role-modal-card .role-info {
+  flex: 1;
+  text-align: left;
+}
+
+.role-modal-card .role-info-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.role-modal-card .role-info-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.role-modal-card .role-badge-current {
+  font-size: 10px;
+  color: var(--accent);
+  background: rgba(0, 229, 255, 0.15);
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}

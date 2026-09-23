@@ -19,6 +19,41 @@
     <button onclick="location.reload()">Повторить</button>
   </div>
 
+  <!-- ЭКРАН ВЫБОРА РОЛИ -->
+  <div id="role-select" class="role-select hidden">
+    <div class="role-select-content">
+      <div class="role-select-logo">⚡ NERV</div>
+      <h2 class="role-select-title">Выбери свою роль</h2>
+      <p class="role-select-sub">Это можно изменить в любой момент</p>
+
+      <div class="role-cards">
+        <div class="role-card" data-role="player">
+          <div class="role-icon">🎮</div>
+          <div class="role-name">Игрок</div>
+          <div class="role-desc">
+            • Брать задания<br>
+            • Загружать видео<br>
+            • Получать награды
+          </div>
+        </div>
+
+        <div class="role-card" data-role="viewer">
+          <div class="role-icon">👁</div>
+          <div class="role-name">Зритель</div>
+          <div class="role-desc">
+            • Создавать задания<br>
+            • Голосовать<br>
+            • Нанимать игроков
+          </div>
+        </div>
+      </div>
+
+      <div class="role-select-hint">
+        Всё можно поменять позже в профиле
+      </div>
+    </div>
+  </div>
+
   <main id="app" class="hidden">
     <header class="app-header">
       <div class="header-line">
@@ -112,6 +147,10 @@
         <div class="referral-label">🔗 Твой реферальный код</div>
         <div class="referral-code" id="profile-ref-code">—</div>
         <button class="btn-share" id="btn-share-ref">📤 Поделиться</button>
+      </div>
+
+      <div class="card">
+        <button class="btn-change-role" id="btn-change-role">🎭 Сменить роль</button>
       </div>
     </section>
 

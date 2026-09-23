@@ -32,12 +32,45 @@ const init = async () => {
 
     currentUser = authData.user;
     renderUser(currentUser);
-    await Promise.all([loadProfile(), loadTasks()]);
+
+    // Проверяем, выбрана ли роль
+    const profileRes = await fetch('/api/app-profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const profileData = await profileRes.json();
+
+    if (profileData.ok && !profileData.profile.roleChosen) {
+      // Роль не выбрана — показываем экран выбора
+      hideLoadingScreen();
+      showRoleSelect(true);
+      return;
+    }
+
+    if (profileData.ok) {
+      renderProfile(profileData.profile);
+      document.getElementById('create-balance').textContent =
+        `${Number(profileData.profile.balance).toLocaleString('ru')} ₽`;
+    }
+
+    await loadTasks();
     showApp();
   } catch (e) {
     console.error('init error:', e);
     showError(e.message || 'Ошибка подключения');
   }
+};
+
+const hideLoadingScreen = () => {
+  document.getElementById('loading').classList.add('hidden');
+};
+
+const showRoleSelect = (show) => {
+  const el = document.getElementById('role-select');
+  if (!el) return;
+  if (show) el.classList.remove('hidden');
+  else el.classList.add('hidden');
 };
 
 // ========== ПРОФИЛЬ ==========
@@ -52,7 +85,8 @@ const loadProfile = async () => {
     const data = await res.json();
     if (data.ok) {
       renderProfile(data.profile);
-      document.getElementById('create-balance').textContent = `${Number(data.profile.balance).toLocaleString('ru')} ₽`;
+      document.getElementById('create-balance').textContent =
+        `${Number(data.profile.balance).toLocaleString('ru')} ₽`;
     }
   } catch (e) { console.error('loadProfile:', e); }
 };
@@ -60,15 +94,19 @@ const loadProfile = async () => {
 const renderProfile = (p) => {
   document.getElementById('profile-avatar').textContent = p.initials || '?';
   document.getElementById('profile-name').textContent = p.displayName;
+
   const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ' };
   document.getElementById('profile-role').textContent = roleLabels[p.role] || p.role;
+
   if (p.isVip) document.getElementById('profile-vip').style.display = '';
   if (p.isModerator) document.getElementById('profile-mod').style.display = '';
+
   if (p.badge) {
     const b = document.getElementById('profile-badge');
     b.style.display = 'flex';
     b.textContent = p.badge.name.split(' ')[0] || '🎖';
   }
+
   document.getElementById('profile-level').textContent = p.level;
   document.getElementById('profile-exp-progress').textContent = p.expProgress;
   document.getElementById('profile-exp-needed').textContent = p.expNeeded;
@@ -144,7 +182,7 @@ const renderTasks = (tasks, userId, userRole) => {
   });
 };
 
-// ========== МОДАЛКА ==========
+// ========== МОДАЛКА ЗАДАНИЯ ==========
 const openTaskModal = async (taskId) => {
   currentTaskId = taskId;
   const modal = document.getElementById('task-modal');
@@ -205,7 +243,6 @@ const renderTaskModal = (t, userRole) => {
 
   const actionsEl = document.getElementById('modal-actions');
   const buttons = [];
-
   const canTake = t.status === 'open' && userRole === 'player' && !t.playerId;
   const isMyTask = t.isPlayer;
 
@@ -273,18 +310,17 @@ const initCreateForm = () => {
   const statusEl = document.getElementById('create-status');
   const btnPublish = document.getElementById('btn-publish');
 
-  // Счётчики символов
+  if (!form) return;
+
   titleInput.addEventListener('input', () => { titleCount.textContent = titleInput.value.length; });
   descInput.addEventListener('input', () => { descCount.textContent = descInput.value.length; });
 
-  // Превью комиссии
   rewardInput.addEventListener('input', () => {
     const r = parseInt(rewardInput.value, 10) || 0;
     const comm = Math.round(r * 0.11);
     commissionPreview.textContent = comm;
   });
 
-  // Отправка
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     statusEl.classList.add('hidden');
@@ -294,15 +330,9 @@ const initCreateForm = () => {
     const description = descInput.value.trim();
     const reward = parseInt(rewardInput.value, 10);
 
-    if (!title || title.length < 3) {
-      showCreateStatus('❌ Название минимум 3 символа', 'error'); return;
-    }
-    if (!description || description.length < 5) {
-      showCreateStatus('❌ Описание минимум 5 символов', 'error'); return;
-    }
-    if (isNaN(reward) || reward < 10) {
-      showCreateStatus('❌ Минимальная награда 10 ₽', 'error'); return;
-    }
+    if (!title || title.length < 3) { showCreateStatus('❌ Название минимум 3 символа', 'error'); return; }
+    if (!description || description.length < 5) { showCreateStatus('❌ Описание минимум 5 символов', 'error'); return; }
+    if (isNaN(reward) || reward < 10) { showCreateStatus('❌ Минимальная награда 10 ₽', 'error'); return; }
 
     btnPublish.disabled = true;
     showCreateStatus('🤖 Проверяю контент... Обычно 2-5 секунд', 'loading');
@@ -319,22 +349,13 @@ const initCreateForm = () => {
       tg?.HapticFeedback?.notificationOccurred?.('success');
       showCreateStatus(`✅ Задание #${data.task.id} создано! Проверено AI.`, 'success');
 
-      // Сброс формы
       form.reset();
       titleCount.textContent = '0';
       descCount.textContent = '0';
       commissionPreview.textContent = '0';
 
-      // Обновляем список и баланс
-      setTimeout(() => {
-        loadTasks();
-        loadProfile();
-      }, 500);
-
-      // Переключаемся на задания через 2 секунды
-      setTimeout(() => {
-        document.querySelector('.tab[data-tab="tasks"]')?.click();
-      }, 2000);
+      setTimeout(() => { loadTasks(); loadProfile(); }, 500);
+      setTimeout(() => { document.querySelector('.tab[data-tab="tasks"]')?.click(); }, 2000);
     } catch (err) {
       tg?.HapticFeedback?.notificationOccurred?.('error');
       showCreateStatus(`❌ ${err.message}`, 'error');
@@ -348,6 +369,102 @@ const initCreateForm = () => {
     statusEl.className = `create-status ${type}`;
     statusEl.classList.remove('hidden');
   };
+};
+
+// ========== ВЫБОР / СМЕНА РОЛИ ==========
+const selectRole = async (role, fromModal = false) => {
+  if (!fromModal) {
+    document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
+    const card = document.querySelector(`.role-card[data-role="${role}"]`);
+    if (card) card.classList.add('selected');
+  }
+
+  tg?.HapticFeedback?.impactOccurred?.('medium');
+
+  try {
+    const res = await fetch('/api/app-change-role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, role }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    tg?.HapticFeedback?.notificationOccurred?.('success');
+
+    if (fromModal) closeRoleModal();
+
+    if (currentUser) currentUser.role = role;
+    await loadProfile();
+    await loadTasks();
+
+    if (!fromModal) {
+      showRoleSelect(false);
+      showApp();
+    } else {
+      tg?.showAlert?.(`✅ Роль изменена на «${data.roleLabel}»`);
+    }
+  } catch (e) {
+    console.error('selectRole error:', e);
+    tg?.showAlert?.(`❌ ${e.message}`);
+    tg?.HapticFeedback?.notificationOccurred?.('error');
+  }
+};
+
+const openRoleModal = () => {
+  let modal = document.getElementById('role-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'role-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="role-modal-backdrop"></div>
+      <div class="modal-content role-modal-content">
+        <div class="modal-header">
+          <span class="modal-id">🎭 СМЕНА РОЛИ</span>
+          <button class="modal-close" id="role-modal-close">✕</button>
+        </div>
+        <h2 class="modal-title">Выбери новую роль</h2>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
+          Можно менять когда угодно
+        </p>
+        <div class="role-modal-cards" id="role-modal-cards"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('role-modal-backdrop').addEventListener('click', closeRoleModal);
+    document.getElementById('role-modal-close').addEventListener('click', closeRoleModal);
+  }
+
+  const cardsEl = document.getElementById('role-modal-cards');
+  const currentRole = currentUser?.role || 'viewer';
+
+  cardsEl.innerHTML = `
+    <div class="role-modal-card ${currentRole === 'player' ? 'current' : ''}" data-role="player">
+      <div class="role-icon-sm">🎮</div>
+      <div class="role-info">
+        <div class="role-info-name">Игрок</div>
+        <div class="role-info-desc">Брать задания и получать награды</div>
+      </div>
+      ${currentRole === 'player' ? '<span class="role-badge-current">СЕЙЧАС</span>' : ''}
+    </div>
+    <div class="role-modal-card ${currentRole === 'viewer' ? 'current' : ''}" data-role="viewer">
+      <div class="role-icon-sm">👁</div>
+      <div class="role-info">
+        <div class="role-info-name">Зритель</div>
+        <div class="role-info-desc">Создавать задания и голосовать</div>
+      </div>
+      ${currentRole === 'viewer' ? '<span class="role-badge-current">СЕЙЧАС</span>' : ''}
+    </div>
+  `;
+
+  modal.classList.remove('hidden');
+};
+
+const closeRoleModal = () => {
+  const modal = document.getElementById('role-modal');
+  if (modal) modal.classList.add('hidden');
 };
 
 // ========== УТИЛИТЫ ==========
@@ -375,6 +492,7 @@ const showError = (msg) => {
 
 // ========== СОБЫТИЯ ==========
 document.addEventListener('click', (e) => {
+  // Табы
   const tab = e.target.closest('.tab');
   if (tab) {
     const tabName = tab.dataset.tab;
@@ -385,6 +503,27 @@ document.addEventListener('click', (e) => {
     return;
   }
 
+  // Выбор роли на стартовом экране
+  const roleCard = e.target.closest('.role-card');
+  if (roleCard) {
+    selectRole(roleCard.dataset.role);
+    return;
+  }
+
+  // Кнопка смены роли в профиле
+  if (e.target.id === 'btn-change-role') {
+    openRoleModal();
+    return;
+  }
+
+  // Выбор роли в модалке
+  const roleModalCard = e.target.closest('.role-modal-card');
+  if (roleModalCard) {
+    selectRole(roleModalCard.dataset.role, true);
+    return;
+  }
+
+  // Фильтры
   const filter = e.target.closest('.filter');
   if (filter) {
     document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
@@ -394,6 +533,7 @@ document.addEventListener('click', (e) => {
     return;
   }
 
+  // Поделиться
   if (e.target.id === 'btn-share-ref') {
     const code = document.getElementById('profile-ref-code').textContent;
     const url = `https://t.me/nerv_05bot?start=ref_${code}`;
@@ -403,6 +543,7 @@ document.addEventListener('click', (e) => {
     }
   }
 
+  // Закрытие модалки задания
   if (e.target.id === 'modal-close' || e.target.id === 'modal-backdrop') {
     closeTaskModal();
   }
