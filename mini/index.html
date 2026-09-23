@@ -58,40 +58,24 @@
     <header class="app-header">
       <div class="header-line">
         <span class="logo">⚡ NERV</span>
-        <span class="user-tag" id="user-tag">—</span>
+        <div class="header-right">
+          <button class="btn-notif" id="btn-notif">
+            🔔
+            <span class="notif-badge hidden" id="notif-badge">0</span>
+          </button>
+          <span class="user-tag" id="user-tag">—</span>
+        </div>
       </div>
     </header>
 
-   <nav class="nav-tabs nav-tabs-4">
+    <nav class="nav-tabs nav-tabs-4">
       <button class="tab active" data-tab="tasks">📋</button>
       <button class="tab" data-tab="top">🏆</button>
       <button class="tab" data-tab="profile">👤</button>
       <button class="tab" data-tab="create">➕</button>
     </nav>
 
-        <!-- ТОП -->
-    <section id="tab-top" class="tab-content">
-      <div class="filters top-filters">
-        <button class="filter active" data-topcat="reputation">⭐ Репутация</button>
-        <button class="filter" data-topcat="balance">💰 Баланс</button>
-        <button class="filter" data-topcat="completed">✅ Задания</button>
-      </div>
-
-      <div id="top-list" class="top-list">
-        <p class="placeholder">Загрузка рейтинга...</p>
-      </div>
-
-      <div id="top-me" class="top-me hidden">
-        <div class="top-me-label">🎯 Твоя позиция</div>
-        <div class="top-me-row">
-          <span class="top-me-rank" id="top-me-rank">#—</span>
-          <span class="top-me-name" id="top-me-name">—</span>
-          <span class="top-me-score" id="top-me-score">—</span>
-        </div>
-      </div>
-    </section>
-    
-   <!-- ЗАДАНИЯ -->
+    <!-- ЗАДАНИЯ -->
     <section id="tab-tasks" class="tab-content active">
       <div class="activity-feed" id="activity-feed">
         <div class="activity-title">🔥 Сейчас происходит</div>
@@ -112,8 +96,25 @@
       </div>
     </section>
 
-      <div id="tasks-list" class="tasks-list">
-        <p class="placeholder">Загрузка заданий...</p>
+    <!-- ТОП -->
+    <section id="tab-top" class="tab-content">
+      <div class="filters top-filters">
+        <button class="filter active" data-topcat="reputation">⭐ Репутация</button>
+        <button class="filter" data-topcat="balance">💰 Баланс</button>
+        <button class="filter" data-topcat="completed">✅ Задания</button>
+      </div>
+
+      <div id="top-list" class="top-list">
+        <p class="placeholder">Загрузка рейтинга...</p>
+      </div>
+
+      <div id="top-me" class="top-me hidden">
+        <div class="top-me-label">🎯 Твоя позиция</div>
+        <div class="top-me-row">
+          <span class="top-me-rank" id="top-me-rank">#—</span>
+          <span class="top-me-name" id="top-me-name">—</span>
+          <span class="top-me-score" id="top-me-score">—</span>
+        </div>
       </div>
     </section>
 

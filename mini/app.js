@@ -8,6 +8,7 @@ let currentUser = null;
 let currentFilter = 'all';
 let currentTaskId = null;
 let currentTopCategory = 'reputation';
+let unreadCount = 0;
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
 const init = async () => {
@@ -53,7 +54,7 @@ const init = async () => {
         `${Number(profileData.profile.balance).toLocaleString('ru')} ₽`;
     }
 
-    await Promise.all([loadTasks(), loadTop(), loadActivity()]);
+    await Promise.all([loadTasks(), loadTop(), loadActivity(), loadNotifications()]);
     showApp();
   } catch (e) {
     console.error('init error:', e);
@@ -133,7 +134,6 @@ const loadTasks = async () => {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
     renderTasks(data.tasks, data.userId, data.userRole);
-    // Обновляем ленту синхронно
     loadActivity();
   } catch (e) {
     console.error('loadTasks:', e);
@@ -431,6 +431,108 @@ const renderTop = (top, myRank, myScore, category) => {
   }
 };
 
+// ========== УВЕДОМЛЕНИЯ ==========
+const loadNotifications = async () => {
+  try {
+    const res = await fetch('/api/app-notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (!data.ok) return;
+
+    unreadCount = data.unreadCount;
+    updateNotifBadge();
+  } catch (e) { console.error('loadNotifications:', e); }
+};
+
+const updateNotifBadge = () => {
+  const badge = document.getElementById('notif-badge');
+  if (!badge) return;
+  if (unreadCount > 0) {
+    badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+};
+
+const openNotifModal = async () => {
+  let notifications = [];
+  try {
+    const res = await fetch('/api/app-notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    const data = await res.json();
+    if (data.ok) notifications = data.notifications;
+  } catch (e) { console.error(e); }
+
+  let modal = document.getElementById('notif-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'notif-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="notif-modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-id">🔔 УВЕДОМЛЕНИЯ</span>
+          <button class="modal-close" id="notif-modal-close">✕</button>
+        </div>
+        <div class="notif-header-action">
+          <h2 class="modal-title" style="margin:0;">Уведомления</h2>
+          <button class="notif-mark-read" id="notif-mark-read">Прочитать все</button>
+        </div>
+        <div id="notif-list"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('notif-modal-backdrop').addEventListener('click', closeNotifModal);
+    document.getElementById('notif-modal-close').addEventListener('click', closeNotifModal);
+    document.getElementById('notif-mark-read').addEventListener('click', markAllRead);
+  }
+
+  const listEl = document.getElementById('notif-list');
+
+  if (!notifications || notifications.length === 0) {
+    listEl.innerHTML = '<div class="notif-empty">📭 Уведомлений пока нет</div>';
+  } else {
+    listEl.innerHTML = notifications.map(n => `
+      <div class="notif-item ${n.isRead ? 'read' : 'unread'}">
+        <div class="notif-content">
+          <div class="notif-msg">${escapeHtml(n.message)}</div>
+          <div class="notif-time">${n.timeAgo}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  modal.classList.remove('hidden');
+
+  setTimeout(markAllRead, 1500);
+};
+
+const closeNotifModal = () => {
+  const modal = document.getElementById('notif-modal');
+  if (modal) modal.classList.add('hidden');
+};
+
+const markAllRead = async () => {
+  try {
+    await fetch('/api/app-notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'mark_all_read' }),
+    });
+    unreadCount = 0;
+    updateNotifBadge();
+  } catch (e) { console.error('markAllRead:', e); }
+};
+
 // ========== СОЗДАНИЕ ЗАДАНИЯ ==========
 const initCreateForm = () => {
   const form = document.getElementById('create-form');
@@ -625,6 +727,13 @@ const showError = (msg) => {
 
 // ========== СОБЫТИЯ ==========
 document.addEventListener('click', (e) => {
+  // Открытие уведомлений
+  if (e.target.closest('#btn-notif')) {
+    tg?.HapticFeedback?.impactOccurred?.('light');
+    openNotifModal();
+    return;
+  }
+
   // Табы
   const tab = e.target.closest('.tab');
   if (tab) {
