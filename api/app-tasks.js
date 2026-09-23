@@ -1,8 +1,9 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: список заданий для Mini App
+// API: список заданий для Mini App (с онлайн-статусами)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
+const { ONLINE_THRESHOLD_MIN } = require('../lib/presence');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
@@ -65,12 +66,15 @@ module.exports = async (req, res) => {
               t."videoUrl", t."createdAt", t."deadlineAt",
               u.name AS "creatorName",
               COALESCE(u."displayName", u.name) AS "creatorDisplay",
+              u.id AS "creatorId",
               p.name AS "playerName",
+              pres."lastSeen" AS "creatorLastSeen",
               (SELECT COUNT(*)::int FROM "Vote" WHERE "taskId"=t.id AND value='approve') AS approve,
               (SELECT COUNT(*)::int FROM "Vote" WHERE "taskId"=t.id AND value='reject') AS reject
        FROM "Task" t
        JOIN "User" u ON t."creatorId" = u.id
        LEFT JOIN "User" p ON t."playerId" = p.id
+       LEFT JOIN "UserPresence" pres ON pres."userId" = u.id
        WHERE 1=1 ${statusFilter}
        ORDER BY t."createdAt" DESC
        LIMIT 50`
@@ -84,7 +88,11 @@ module.exports = async (req, res) => {
       status: t.status,
       approve: t.approve,
       reject: t.reject,
+      creatorId: t.creatorId,
       creatorName: t.creatorDisplay || t.creatorName,
+      isCreatorOnline: t.creatorLastSeen
+        ? (Date.now() - new Date(t.creatorLastSeen).getTime()) / 60000 < ONLINE_THRESHOLD_MIN
+        : false,
       playerName: t.playerName,
       hasVideo: !!t.videoUrl,
       deadlineAt: t.deadlineAt,
