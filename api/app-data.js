@@ -1,5 +1,6 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: объединённый эндпоинт (online + favorites + metric)
+// API: объединённый эндпоинт
+// online + favorites + metric + public profile
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -23,6 +24,12 @@ const verifyInitData = (initData) => {
   return JSON.parse(params.get('user'));
 };
 
+// Вспомогательная: определить онлайн
+const isOnline = (lastSeen) => {
+  if (!lastSeen) return false;
+  return (Date.now() - new Date(lastSeen).getTime()) / 60000 < ONLINE_THRESHOLD_MIN;
+};
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
@@ -33,12 +40,104 @@ module.exports = async (req, res) => {
     const tgUser = verifyInitData(initData);
     const chatId = String(tgUser.id);
 
-    const meRes = await query(`SELECT id, balance, reputation FROM "User" WHERE "telegramChatId" = $1`, [chatId]);
+    const meRes = await query(
+      `SELECT id, balance, reputation FROM "User" WHERE "telegramChatId" = $1`,
+      [chatId]
+    );
     if (meRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
     const user = meRes.rows[0];
     const myId = user.id;
 
-    // ========== ONLINE ==========
+    // ═══════════ PUBLIC PROFILE ═══════════
+    if (action === 'user_profile') {
+      const targetId = parseInt(req.body.targetId, 10);
+      if (!targetId) return res.status(400).json({ ok: false, error: 'targetId обязателен' });
+
+      const r = await query(
+        `SELECT u.id, u.name, COALESCE(u."displayName", u.name) AS display,
+                u.balance, u.reputation, u.role, u.level, u.experience,
+                u."loginStreak", u."isModerator", u."isBanned", u."roleChosen",
+                u.avatar, u.bio, u."createdAt",
+                u."ratingAvg", u."ratingCount",
+                u."completedTasksCount",
+                pres."lastSeen",
+                (SELECT COUNT(*)::int FROM "UserAchievement" WHERE "userId"=u.id) AS achievements
+         FROM "User" u
+         LEFT JOIN "UserPresence" pres ON pres."userId" = u.id
+         WHERE u.id = $1 AND u."isBanned" = false`,
+        [targetId]
+      );
+      if (r.rows.length === 0) return res.status(404).json({ ok: false, error: 'Игрок не найден' });
+
+      const u = r.rows[0];
+      const display = u.display;
+      const initials = display.split(' ').slice(0, 2)
+        .map(w => w[0] ? w[0].toUpperCase() : '').join('');
+
+      // Последние 5 отзывов
+      const reviewsRes = await query(
+        `SELECT r.rating, r.comment, r."createdAt",
+                COALESCE(ru."displayName", ru.name) AS reviewer_name,
+                t.title AS task_title
+         FROM "Review" r
+         LEFT JOIN "User" ru ON ru.id = r."reviewerId"
+         LEFT JOIN "Task" t ON t.id = r."taskId"
+         WHERE r."playerId" = $1
+         ORDER BY r."createdAt" DESC
+         LIMIT 5`,
+        [targetId]
+      );
+
+      // Место в топе по репутации
+      const rankRes = await query(
+        `SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1 AND "isBanned" = false`,
+        [u.reputation]
+      );
+
+      // Флаг избранного
+      const favRes = await query(
+        `SELECT 1 FROM "FavoriteUser" WHERE "userId"=$1 AND "targetId"=$2 LIMIT 1`,
+        [myId, targetId]
+      );
+
+      return res.status(200).json({
+        ok: true,
+        profile: {
+          id: u.id,
+          name: u.name,
+          displayName: display,
+          initials,
+          avatar: u.avatar,
+          bio: u.bio,
+          balance: u.balance,
+          reputation: u.reputation,
+          role: u.role,
+          roleChosen: u.roleChosen,
+          level: u.level || 1,
+          experience: u.experience || 0,
+          loginStreak: u.loginStreak || 0,
+          isModerator: u.isModerator,
+          isOnline: isOnline(u.lastSeen),
+          memberSince: u.createdAt,
+          completedTasksCount: u.completedTasksCount || 0,
+          achievements: u.achievements,
+          ratingAvg: Number(u.ratingAvg) || 0,
+          ratingCount: u.ratingCount || 0,
+          rank: rankRes.rows[0].pos,
+          isMe: u.id === myId,
+          isFavorite: favRes.rows.length > 0,
+          reviews: reviewsRes.rows.map(rv => ({
+            rating: rv.rating,
+            comment: rv.comment,
+            createdAt: rv.createdAt,
+            reviewerName: rv.reviewer_name || 'Аноним',
+            taskTitle: rv.task_title || '—',
+          })),
+        },
+      });
+    }
+
+    // ═══════════ ONLINE ═══════════
     if (action === 'online') {
       const onlineRes = await query(
         `SELECT u.id, COALESCE(u."displayName", u.name) AS name, u.level, u.role, pres."lastSeen"
@@ -57,9 +156,9 @@ module.exports = async (req, res) => {
       });
     }
 
-    // ========== FAVORITES ==========
+    // ═══════════ FAVORITES ═══════════
     if (action === 'favorites_toggle') {
-      const targetId = parseInt(req.body.targetId);
+      const targetId = parseInt(req.body.targetId, 10);
       if (!targetId || targetId === myId) return res.status(400).json({ ok: false, error: 'Неверно' });
 
       const ex = await query(`SELECT id FROM "FavoriteUser" WHERE "userId"=$1 AND "targetId"=$2`, [myId, targetId]);
@@ -87,12 +186,12 @@ module.exports = async (req, res) => {
         ok: true,
         favorites: listRes.rows.map(u => ({
           id: u.id, name: u.name, level: u.level || 1, role: u.role,
-          isOnline: u.lastSeen ? (Date.now() - new Date(u.lastSeen).getTime()) / 60000 < ONLINE_THRESHOLD_MIN : false,
+          isOnline: isOnline(u.lastSeen),
         })),
       });
     }
 
-    // ========== METRIC ==========
+    // ═══════════ METRICS ═══════════
     const metric = req.body.metric;
 
     if (metric === 'balance') {

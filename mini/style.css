@@ -1522,3 +1522,178 @@ body {
   color: var(--text-muted);
   margin-bottom: 10px;
 }
+
+/* ▬▬▬▬▬ ПРОФИЛЬ ИГРОКА (публичный) ▬▬▬▬▬ */
+.top-row-clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.top-row-clickable:active {
+  transform: scale(0.98);
+  border-color: var(--accent) !important;
+}
+
+.user-modal-content {
+  padding-bottom: 20px !important;
+}
+
+.user-profile-header {
+  text-align: center;
+  padding: 8px 0 16px;
+}
+.user-profile-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00e5ff 0%, #ff00aa 100%);
+  color: #0a0e1a;
+  font-size: 28px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+  position: relative;
+  box-shadow: 0 0 24px rgba(0, 229, 255, 0.4);
+  letter-spacing: 1px;
+}
+.user-profile-avatar .user-online-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--bg-card);
+}
+.user-profile-name {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+.user-profile-tags {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tag-online {
+  background: rgba(0, 255, 136, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+}
+
+.user-profile-rating {
+  text-align: center;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border-radius: 10px;
+  margin: 12px 0;
+}
+.user-profile-rating-stars {
+  font-size: 18px;
+  color: var(--warning);
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.user-profile-rating-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.user-profile-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+.user-stat {
+  text-align: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 4px;
+}
+.user-stat-icon { font-size: 16px; }
+.user-stat-value {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--accent);
+  margin: 2px 0;
+}
+.user-stat-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.user-profile-xp {
+  padding: 10px 0;
+  margin-bottom: 12px;
+}
+
+.user-profile-meta {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+.user-meta-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(35, 45, 74, 0.4);
+}
+.user-meta-row:last-child { border-bottom: none; }
+.user-meta-row span { color: var(--text-muted); }
+.user-meta-row strong { color: var(--text); }
+
+.btn-favorite {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 14px;
+  transition: all 0.15s ease;
+}
+.btn-favorite:active { transform: scale(0.98); }
+.btn-favorite.active {
+  background: rgba(255, 187, 0, 0.15);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.user-reviews-section {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.user-reviews-title {
+  font-size: 12px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.user-review-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.user-review-head {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.user-review-head .review-stars {
+  color: var(--warning);
+  margin-right: 6px;
+}

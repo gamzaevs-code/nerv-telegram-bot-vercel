@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// NERV MINI APP — логика фронтенда (v4: отзывы и рейтинг)
+// NERV MINI APP — логика фронтенда (v5: кликабельные игроки)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 
 const tg = window.Telegram?.WebApp;
@@ -75,7 +75,7 @@ const showRoleSelect = (show) => {
   if (el) show ? el.classList.remove('hidden') : el.classList.add('hidden');
 };
 
-// ========== ПРОФИЛЬ ==========
+// ========== ПРОФИЛЬ (свой) ==========
 const loadProfile = async () => {
   try {
     const res = await fetch('/api/app-profile', {
@@ -325,7 +325,6 @@ const renderTaskModal = (t, userRole) => {
     buttons.push(`<button class="btn-chat" data-action="chat">💬 Написать ${t.isPlayer ? 'создателю' : 'игроку'}</button>`);
   }
 
-  // 💬 Отзыв (для создателя, если задание одобрено и есть игрок)
   if (t.isCreator && t.status === 'approved' && t.playerId && !t.hasReview) {
     buttons.push(`<button class="btn-review-primary" data-action="leave_review">⭐ Оставить отзыв</button>`);
   }
@@ -359,7 +358,6 @@ const handleTaskAction = async (action) => {
 
   if (action === 'leave_review') {
     tg?.HapticFeedback?.impactOccurred?.('light');
-    // Нужно знать playerId — забираем из задачи
     try {
       const res = await fetch('/api/app-task-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -398,6 +396,192 @@ const handleTaskAction = async (action) => {
 const closeTaskModal = () => {
   document.getElementById('task-modal').classList.add('hidden');
   currentTaskId = null;
+};
+
+// ========== ПРОФИЛЬ ИГРОКА (публичный) ==========
+window.openUserProfile = async (userId) => {
+  if (!userId) return;
+  tg?.HapticFeedback?.impactOccurred?.('light');
+
+  // Создаём модалку если нет
+  let modal = document.getElementById('user-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'user-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="user-modal-backdrop"></div>
+      <div class="modal-content user-modal-content">
+        <div class="modal-header">
+          <span class="modal-id">👤 ПРОФИЛЬ</span>
+          <button class="modal-close" id="user-modal-close">✕</button>
+        </div>
+        <div id="user-modal-body">
+          <div class="modal-loading">Загрузка...</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('user-modal-backdrop').addEventListener('click', closeUserModal);
+    document.getElementById('user-modal-close').addEventListener('click', closeUserModal);
+  }
+
+  modal.classList.remove('hidden');
+  const body = document.getElementById('user-modal-body');
+  body.innerHTML = '<div class="modal-loading">Загрузка...</div>';
+
+  try {
+    const res = await fetch('/api/app-data', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'user_profile', targetId: userId }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    renderUserProfile(data.profile);
+  } catch (e) {
+    body.innerHTML = `<div class="notif-empty">❌ ${escapeHtml(e.message)}</div>`;
+  }
+};
+
+window.closeUserModal = () => {
+  const m = document.getElementById('user-modal');
+  if (m) m.classList.add('hidden');
+};
+
+const renderUserProfile = (p) => {
+  const body = document.getElementById('user-modal-body');
+  const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ', moderator: '👮 Модератор' };
+  const roleLabel = roleLabels[p.role] || p.role;
+
+  const expForNext = Math.pow(p.level, 2) * 50;
+  const expForCurrent = Math.pow(p.level - 1, 2) * 50;
+  const expProgress = p.experience - expForCurrent;
+  const expNeeded = expForNext - expForCurrent;
+  const expPercent = Math.min(Math.round((expProgress / expNeeded) * 100), 100);
+
+  const ratingStars = p.ratingCount > 0
+    ? `${'⭐'.repeat(Math.round(p.ratingAvg))} ${p.ratingAvg}`
+    : '— / 5';
+
+  const reviewsHtml = p.reviews && p.reviews.length > 0
+    ? p.reviews.map(r => `
+        <div class="user-review-item">
+          <div class="user-review-head">
+            <span class="review-stars">${'⭐'.repeat(r.rating)}</span>
+            <b>${escapeHtml(r.reviewerName)}</b>
+          </div>
+          <div class="review-task">📋 ${escapeHtml(r.taskTitle)}</div>
+          ${r.comment ? `<div class="review-comment">${escapeHtml(r.comment)}</div>` : ''}
+          <div class="review-date">${new Date(r.createdAt).toLocaleDateString('ru-RU')}</div>
+        </div>
+      `).join('')
+    : '<div class="reviews-empty">Пока нет отзывов</div>';
+
+  body.innerHTML = `
+    <div class="user-profile-header">
+      <div class="user-profile-avatar">
+        ${escapeHtml(p.initials)}
+        ${p.isOnline ? '<span class="user-online-dot"></span>' : ''}
+      </div>
+      <h2 class="user-profile-name">${escapeHtml(p.displayName)}</h2>
+      <div class="user-profile-tags">
+        <span class="tag tag-role">${roleLabel}</span>
+        ${p.isModerator ? '<span class="tag tag-mod">👮 Модератор</span>' : ''}
+        ${p.isOnline ? '<span class="tag tag-online">🟢 Онлайн</span>' : ''}
+      </div>
+    </div>
+
+    <div class="user-profile-rating">
+      <div class="user-profile-rating-stars">${ratingStars}</div>
+      <div class="user-profile-rating-count">${p.ratingCount} ${p.ratingCount === 1 ? 'отзыв' : p.ratingCount < 5 ? 'отзыва' : 'отзывов'}</div>
+    </div>
+
+    <div class="user-profile-stats">
+      <div class="user-stat">
+        <div class="user-stat-icon">🎖</div>
+        <div class="user-stat-value">${p.level}</div>
+        <div class="user-stat-label">Уровень</div>
+      </div>
+      <div class="user-stat">
+        <div class="user-stat-icon">🏅</div>
+        <div class="user-stat-value">#${p.rank}</div>
+        <div class="user-stat-label">Место</div>
+      </div>
+      <div class="user-stat">
+        <div class="user-stat-icon">✅</div>
+        <div class="user-stat-value">${p.completedTasksCount}</div>
+        <div class="user-stat-label">Заданий</div>
+      </div>
+      <div class="user-stat">
+        <div class="user-stat-icon">🎖</div>
+        <div class="user-stat-value">${p.achievements}</div>
+        <div class="user-stat-label">Ачивок</div>
+      </div>
+    </div>
+
+    <div class="user-profile-xp">
+      <div class="level-label">
+        <span>Опыт</span>
+        <span class="exp-info">${p.experience} XP</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width:${expPercent}%"></div>
+      </div>
+    </div>
+
+    <div class="user-profile-meta">
+      <div class="user-meta-row">
+        <span>⭐ Репутация</span>
+        <strong>${p.reputation}</strong>
+      </div>
+      <div class="user-meta-row">
+        <span>🔥 Streak</span>
+        <strong>${p.loginStreak} дн.</strong>
+      </div>
+      <div class="user-meta-row">
+        <span>📅 В NERV с</span>
+        <strong>${new Date(p.memberSince).toLocaleDateString('ru-RU')}</strong>
+      </div>
+      ${p.isMe ? '' : `<div class="user-meta-row">
+        <span>💰 Баланс</span>
+        <strong>${Number(p.balance).toLocaleString('ru')} ₽</strong>
+      </div>`}
+    </div>
+
+    ${p.isMe ? '' : `
+      <button class="btn-favorite ${p.isFavorite ? 'active' : ''}" id="user-fav-btn">
+        ${p.isFavorite ? '★ В избранном' : '☆ Добавить в избранное'}
+      </button>
+    `}
+
+    <div class="user-reviews-section">
+      <div class="user-reviews-title">⭐ Последние отзывы</div>
+      ${reviewsHtml}
+    </div>
+  `;
+
+  // Обработчик избранного
+  if (!p.isMe) {
+    const favBtn = document.getElementById('user-fav-btn');
+    if (favBtn) {
+      favBtn.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/app-data', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData, action: 'favorites_toggle', targetId: p.id }),
+          });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error);
+          const isNow = data.action === 'added';
+          favBtn.classList.toggle('active', isNow);
+          favBtn.textContent = isNow ? '★ В избранном' : '☆ Добавить в избранное';
+          tg?.HapticFeedback?.notificationOccurred?.('success');
+        } catch (e) {
+          tg?.HapticFeedback?.notificationOccurred?.('error');
+        }
+      });
+    }
+  }
 };
 
 // ========== ЧАТ ПО ЗАДАНИЮ ==========
@@ -510,8 +694,6 @@ const sendChatMessage = async () => {
 };
 
 // ========== ОТЗЫВЫ И РЕЙТИНГ ==========
-
-// Модалка отзывов
 const openReviewsModal = (title) => {
   const modal = document.getElementById('reviews-modal');
   document.getElementById('reviews-modal-title').textContent = title;
@@ -523,7 +705,6 @@ const closeReviewsModal = () => {
   document.getElementById('reviews-modal').classList.add('hidden');
 };
 
-// Мои отзывы (для игрока)
 const openMyReviews = async () => {
   openReviewsModal('⭐ МОИ ОТЗЫВЫ');
   const body = document.getElementById('reviews-modal-body');
@@ -557,7 +738,6 @@ const openMyReviews = async () => {
   }
 };
 
-// Задания, ожидающие отзыва (для создателя)
 const openPendingReviews = async () => {
   openReviewsModal('📝 ОСТАВИТЬ ОТЗЫВ');
   const body = document.getElementById('reviews-modal-body');
@@ -587,7 +767,6 @@ const openPendingReviews = async () => {
   }
 };
 
-// Модалка с выбором звёзд
 window.openRatingModal = (taskId, playerId, taskTitle) => {
   openReviewsModal('⭐ ОЦЕНКА');
   const body = document.getElementById('reviews-modal-body');
@@ -651,7 +830,6 @@ window.openRatingModal = (taskId, playerId, taskTitle) => {
   });
 };
 
-// Топ по рейтингу
 const loadTopRated = async () => {
   const listEl = document.getElementById('top-list');
   listEl.innerHTML = '<p class="placeholder">Загрузка...</p>';
@@ -677,7 +855,7 @@ const loadTopRated = async () => {
       const initials = (u.name || '?').split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
       const isMe = currentUser && u.id === currentUser.id;
       return `
-        <div class="top-row ${isMe ? 'is-me' : ''}">
+        <div class="top-row top-row-clickable ${isMe ? 'is-me' : ''}" data-user-id="${u.id}">
           <div class="top-rank ${rankClass}">${rankDisplay}</div>
           <div class="top-avatar">${initials}</div>
           <div class="top-info">
@@ -688,13 +866,18 @@ const loadTopRated = async () => {
         </div>
       `;
     }).join('');
+
+    // клик → профиль
+    listEl.querySelectorAll('.top-row-clickable').forEach(row => {
+      row.addEventListener('click', () => openUserProfile(parseInt(row.dataset.userId, 10)));
+    });
   } catch (e) {
     console.error('loadTopRated:', e);
     listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить</p>';
   }
 };
 
-// ========== ЛЕНТА (app-feed) ==========
+// ========== ЛЕНТА ==========
 const loadActivity = async () => {
   const listEl = document.getElementById('activity-list');
   if (!listEl) return;
@@ -772,7 +955,7 @@ const renderTop = (top, myRank, myScore, category) => {
     const initials = u.name.split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
     const sub = category === 'completed' ? `Ур. ${u.level} · 🎖 ${u.achievements}` : `Ур. ${u.level}`;
     return `
-      <div class="top-row ${u.isMe ? 'is-me' : ''}">
+      <div class="top-row top-row-clickable ${u.isMe ? 'is-me' : ''}" data-user-id="${u.id}">
         <div class="top-rank ${rankClass}">${rankDisplay}</div>
         <div class="top-avatar">${initials}</div>
         <div class="top-info">
@@ -783,6 +966,11 @@ const renderTop = (top, myRank, myScore, category) => {
       </div>
     `;
   }).join('');
+
+  // клик → профиль
+  listEl.querySelectorAll('.top-row-clickable').forEach(row => {
+    row.addEventListener('click', () => openUserProfile(parseInt(row.dataset.userId, 10)));
+  });
 
   const inTop = top.some(u => u.isMe);
   if (!inTop && myRank) {
@@ -795,7 +983,7 @@ const renderTop = (top, myRank, myScore, category) => {
   }
 };
 
-// ========== УВЕДОМЛЕНИЯ (app-feed) ==========
+// ========== УВЕДОМЛЕНИЯ ==========
 const loadNotifications = async () => {
   try {
     const res = await fetch('/api/app-feed', {
@@ -889,7 +1077,7 @@ const markAllRead = async () => {
   } catch (e) { console.error('markAllRead:', e); }
 };
 
-// ========== МЕТРИКИ (app-data) ==========
+// ========== МЕТРИКИ ==========
 const openMetricModal = async (metric) => {
   let data = null;
   try {
@@ -984,7 +1172,7 @@ const closeMetricModal = () => {
   if (m) m.classList.add('hidden');
 };
 
-// ========== ОНЛАЙН / ИЗБРАННЫЕ (app-data) ==========
+// ========== ОНЛАЙН / ИЗБРАННЫЕ ==========
 const openOnlineModal = async () => {
   let online = [];
   try {
@@ -1021,7 +1209,7 @@ const openOnlineModal = async () => {
     body.innerHTML = '<div class="notif-empty">😴 Никого нет онлайн</div>';
   } else {
     body.innerHTML = online.map(u => `
-      <div class="user-row" onclick="addFavorite(${u.id})">
+      <div class="user-row" data-user-id="${u.id}">
         <div class="user-avatar-sm">
           ${u.name.split(' ').slice(0,2).map(w=>w[0]?w[0].toUpperCase():'').join('')}
           <div class="user-online-dot"></div>
@@ -1030,9 +1218,16 @@ const openOnlineModal = async () => {
           <div class="user-name">${escapeHtml(u.name)}</div>
           <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
         </div>
-        <div class="user-action">⭐</div>
+        <div class="user-action">›</div>
       </div>
     `).join('');
+
+    body.querySelectorAll('.user-row').forEach(row => {
+      row.addEventListener('click', () => {
+        closeOnlineModal();
+        openUserProfile(parseInt(row.dataset.userId, 10));
+      });
+    });
   }
 
   modal.classList.remove('hidden');
@@ -1079,7 +1274,7 @@ const openFavoritesModal = async () => {
     body.innerHTML = '<div class="notif-empty">📭 Избранных пока нет</div>';
   } else {
     body.innerHTML = favorites.map(u => `
-      <div class="user-row" onclick="removeFavorite(${u.id})">
+      <div class="user-row" data-user-id="${u.id}">
         <div class="user-avatar-sm">
           ${u.name.split(' ').slice(0,2).map(w=>w[0]?w[0].toUpperCase():'').join('')}
           ${u.isOnline ? '<div class="user-online-dot"></div>' : ''}
@@ -1088,9 +1283,16 @@ const openFavoritesModal = async () => {
           <div class="user-name">${escapeHtml(u.name)}</div>
           <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
         </div>
-        <div class="user-action">✕</div>
+        <div class="user-action">›</div>
       </div>
     `).join('');
+
+    body.querySelectorAll('.user-row').forEach(row => {
+      row.addEventListener('click', () => {
+        closeFavModal();
+        openUserProfile(parseInt(row.dataset.userId, 10));
+      });
+    });
   }
 
   modal.classList.remove('hidden');
@@ -1100,18 +1302,6 @@ const closeFavModal = () => {
   const m = document.getElementById('fav-modal');
   if (m) m.classList.add('hidden');
 };
-
-window.addFavorite = async (targetId) => {
-  try {
-    await fetch('/api/app-data', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, action: 'favorites_toggle', targetId }),
-    });
-    tg?.HapticFeedback?.notificationOccurred?.('success');
-  } catch (e) { console.error(e); }
-};
-
-window.removeFavorite = window.addFavorite;
 
 // ========== СОЗДАНИЕ ЗАДАНИЯ ==========
 const initCreateForm = () => {
@@ -1183,7 +1373,7 @@ const initCreateForm = () => {
   };
 };
 
-// ========== ВЫБОР / СМЕНА РОЛИ ==========
+// ========== РОЛИ ==========
 const selectRole = async (role, fromModal = false) => {
   if (!fromModal) {
     document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
@@ -1281,9 +1471,7 @@ const escapeAttr = (str) => {
   return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
 };
 
-const renderUser = (user) => {
-  // Функция-заглушка для совместимости
-};
+const renderUser = (user) => {};
 const showApp = () => {
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
@@ -1317,7 +1505,6 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'online-card') { openOnlineModal(); return; }
   if (e.target.id === 'favorites-card') { openFavoritesModal(); return; }
 
-  // ОТЗЫВЫ
   if (e.target.id === 'btn-open-reviews') { tg?.HapticFeedback?.impactOccurred?.('light'); openMyReviews(); return; }
   if (e.target.id === 'btn-open-pending') { tg?.HapticFeedback?.impactOccurred?.('light'); openPendingReviews(); return; }
   if (e.target.id === 'reviews-modal-close' || e.target.id === 'reviews-modal-backdrop') { closeReviewsModal(); return; }
