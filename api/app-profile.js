@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: расширенный профиль (метрики, спарклайн, достижения, рейтинг)
+// API: расширенный профиль (метрики, спарклайн, достижения, рейтинг, ник)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
               level, experience, "loginStreak", "isModerator",
               "referralCode", "createdAt", "roleChosen",
               "lastDailyBonusAt", avatar, bio,
-              "ratingAvg", "ratingCount"
+              "ratingAvg", "ratingCount", "nicknameUpdatedAt"
        FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
     );
     const rank = rankRes.rows[0].pos;
 
-    // Достижения (последние 3 + общий счёт)
+    // Достижения
     const achAll = await query(
       `SELECT a.id, a.name, a.icon, a.reward, ua."unlockedAt"
        FROM "Achievement" a
@@ -123,7 +123,7 @@ module.exports = async (req, res) => {
       [user.id]
     );
 
-    // Спарклайн активности (7 дней) — транзакции
+    // Спарклайн
     const sparkRes = await query(
       `SELECT DATE("createdAt") AS d, COUNT(*)::int AS c
        FROM "Transaction"
@@ -142,7 +142,7 @@ module.exports = async (req, res) => {
     }
     const sparkMax = Math.max(...sparkData, 1);
 
-    // Streak-календарь (последние 7 дней активности)
+    // Streak-календарь
     const streakRes = await query(
       `SELECT DATE("createdAt") AS d
        FROM "Transaction"
@@ -159,12 +159,12 @@ module.exports = async (req, res) => {
       streakDays.push(streakRes.rows.some(r => String(r.d).startsWith(key)));
     }
 
-    // Таймер до следующего бонуса
+    // Таймер бонуса
     const lastBonus = user.lastDailyBonusAt ? new Date(user.lastDailyBonusAt) : null;
     const hoursSinceBonus = lastBonus ? (Date.now() - lastBonus.getTime()) / 3600000 : 24;
     const nextBonusHours = Math.max(0, 24 - hoursSinceBonus);
 
-    // Метрики для клика
+    // Метрики
     const earnRes = await query(
       `SELECT COALESCE(SUM(amount),0)::int AS s FROM "Transaction"
        WHERE "userId"=$1 AND amount > 0`,
@@ -227,6 +227,8 @@ module.exports = async (req, res) => {
         // ⭐ РЕЙТИНГ И ОТЗЫВЫ
         ratingAvg: Number(user.ratingAvg) || 0,
         ratingCount: user.ratingCount || 0,
+        // 🎭 НИК
+        nicknameUpdatedAt: user.nicknameUpdatedAt,
         metrics: {
           earned: earnRes.rows[0].s,
           spent: Math.abs(spentRes.rows[0].s),

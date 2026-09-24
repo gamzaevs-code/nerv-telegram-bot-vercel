@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// NERV MINI APP — логика фронтенда (v5: кликабельные игроки)
+// NERV MINI APP — логика фронтенда (v6: никнеймы + кликабельные игроки)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 
 const tg = window.Telegram?.WebApp;
@@ -95,7 +95,7 @@ const loadProfile = async () => {
 
 const renderProfile = (p) => {
   document.getElementById('profile-avatar').textContent = p.initials || '?';
-  document.getElementById('profile-name').textContent = p.displayName;
+  document.getElementById('profile-name').textContent = '@' + (p.displayName || p.name || 'NERV');
 
   const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ' };
   document.getElementById('profile-role').textContent = roleLabels[p.role] || p.role;
@@ -226,7 +226,7 @@ const renderTasks = (tasks, userId, userRole) => {
         <div class="task-footer">
           <span class="task-status ${t.status}">${statusLabel}</span>
           <div class="task-meta">
-            <span>${onlineDot}👤 ${escapeHtml(t.creatorName)}</span>
+            <span>${onlineDot}👤 @${escapeHtml(t.creatorName)}</span>
             ${t.hasVideo ? '<span>🎬</span>' : ''}
           </div>
         </div>
@@ -278,11 +278,11 @@ const renderTaskModal = (t, userRole) => {
   statusEl.className = `modal-status ${t.status}`;
 
   document.getElementById('modal-desc').textContent = t.description || '—';
-  document.getElementById('modal-creator').textContent = t.creatorName;
+  document.getElementById('modal-creator').textContent = '@' + t.creatorName;
 
   if (t.playerName) {
     document.getElementById('modal-player-row').style.display = '';
-    document.getElementById('modal-player').textContent = t.playerName;
+    document.getElementById('modal-player').textContent = '@' + t.playerName;
   } else {
     document.getElementById('modal-player-row').style.display = 'none';
   }
@@ -403,7 +403,6 @@ window.openUserProfile = async (userId) => {
   if (!userId) return;
   tg?.HapticFeedback?.impactOccurred?.('light');
 
-  // Создаём модалку если нет
   let modal = document.getElementById('user-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -468,7 +467,7 @@ const renderUserProfile = (p) => {
         <div class="user-review-item">
           <div class="user-review-head">
             <span class="review-stars">${'⭐'.repeat(r.rating)}</span>
-            <b>${escapeHtml(r.reviewerName)}</b>
+            <b>@${escapeHtml(r.reviewerName)}</b>
           </div>
           <div class="review-task">📋 ${escapeHtml(r.taskTitle)}</div>
           ${r.comment ? `<div class="review-comment">${escapeHtml(r.comment)}</div>` : ''}
@@ -483,7 +482,7 @@ const renderUserProfile = (p) => {
         ${escapeHtml(p.initials)}
         ${p.isOnline ? '<span class="user-online-dot"></span>' : ''}
       </div>
-      <h2 class="user-profile-name">${escapeHtml(p.displayName)}</h2>
+      <h2 class="user-profile-name">@${escapeHtml(p.displayName)}</h2>
       <div class="user-profile-tags">
         <span class="tag tag-role">${roleLabel}</span>
         ${p.isModerator ? '<span class="tag tag-mod">👮 Модератор</span>' : ''}
@@ -560,7 +559,6 @@ const renderUserProfile = (p) => {
     </div>
   `;
 
-  // Обработчик избранного
   if (!p.isMe) {
     const favBtn = document.getElementById('user-fav-btn');
     if (favBtn) {
@@ -662,7 +660,7 @@ const renderChatMessages = (messages) => {
   const wasAtBottom = msgEl.scrollTop + msgEl.clientHeight >= msgEl.scrollHeight - 30;
   msgEl.innerHTML = messages.map(m => `
     <div class="chat-msg ${m.isMine ? 'mine' : 'theirs'}">
-      ${!m.isMine ? `<div class="chat-msg-name">${escapeHtml(m.fromName)}</div>` : ''}
+      ${!m.isMine ? `<div class="chat-msg-name">@${escapeHtml(m.fromName)}</div>` : ''}
       <div class="chat-msg-text">${escapeHtml(m.message)}</div>
       <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</div>
     </div>
@@ -693,7 +691,7 @@ const sendChatMessage = async () => {
   }
 };
 
-// ========== ОТЗЫВЫ И РЕЙТИНГ ==========
+// ========== ОТЗЫВЫ ==========
 const openReviewsModal = (title) => {
   const modal = document.getElementById('reviews-modal');
   document.getElementById('reviews-modal-title').textContent = title;
@@ -726,7 +724,7 @@ const openMyReviews = async () => {
       <div class="review-item">
         <div class="review-head">
           <span class="review-stars">${'⭐'.repeat(r.rating)}</span>
-          <b>${escapeHtml(r.reviewer_name || 'Аноним')}</b>
+          <b>@${escapeHtml(r.reviewer_name || 'Аноним')}</b>
         </div>
         <div class="review-task">📋 ${escapeHtml(r.task_title || '—')}</div>
         ${r.comment ? `<div class="review-comment">${escapeHtml(r.comment)}</div>` : ''}
@@ -758,7 +756,7 @@ const openPendingReviews = async () => {
     body.innerHTML = data.pending.map(p => `
       <div class="pending-task">
         <div class="pending-task-title">${escapeHtml(p.title)}</div>
-        <div class="pending-task-meta">👤 ${escapeHtml(p.player_name || 'Игрок')} • 💰 ${p.reward} ₽</div>
+        <div class="pending-task-meta">👤 @${escapeHtml(p.player_name || 'Игрок')} • 💰 ${p.reward} ₽</div>
         <button class="btn-review-primary" onclick="openRatingModal(${p.id}, ${p.playerId}, '${escapeAttr(p.title)}')">⭐ Оценить</button>
       </div>
     `).join('');
@@ -859,7 +857,7 @@ const loadTopRated = async () => {
           <div class="top-rank ${rankClass}">${rankDisplay}</div>
           <div class="top-avatar">${initials}</div>
           <div class="top-info">
-            <div class="top-name">${escapeHtml(u.name)}</div>
+            <div class="top-name">@${escapeHtml(u.name)}</div>
             <div class="top-sub">${u.ratingCount} ${u.ratingCount === 1 ? 'отзыв' : u.ratingCount < 5 ? 'отзыва' : 'отзывов'}</div>
           </div>
           <div class="top-score">⭐ ${u.ratingAvg}</div>
@@ -867,7 +865,6 @@ const loadTopRated = async () => {
       `;
     }).join('');
 
-    // клик → профиль
     listEl.querySelectorAll('.top-row-clickable').forEach(row => {
       row.addEventListener('click', () => openUserProfile(parseInt(row.dataset.userId, 10)));
     });
@@ -959,7 +956,7 @@ const renderTop = (top, myRank, myScore, category) => {
         <div class="top-rank ${rankClass}">${rankDisplay}</div>
         <div class="top-avatar">${initials}</div>
         <div class="top-info">
-          <div class="top-name">${escapeHtml(u.name)}</div>
+          <div class="top-name">@${escapeHtml(u.name)}</div>
           <div class="top-sub">${sub}</div>
         </div>
         <div class="top-score">${categoryIcons[category]} ${u.score}${suffix}</div>
@@ -967,7 +964,6 @@ const renderTop = (top, myRank, myScore, category) => {
     `;
   }).join('');
 
-  // клик → профиль
   listEl.querySelectorAll('.top-row-clickable').forEach(row => {
     row.addEventListener('click', () => openUserProfile(parseInt(row.dataset.userId, 10)));
   });
@@ -976,7 +972,8 @@ const renderTop = (top, myRank, myScore, category) => {
   if (!inTop && myRank) {
     meEl.classList.remove('hidden');
     document.getElementById('top-me-rank').textContent = `#${myRank}`;
-    document.getElementById('top-me-name').textContent = currentUser?.displayName || currentUser?.name || 'Ты';
+    document.getElementById('top-me-name').textContent =
+      '@' + (currentUser?.displayName || currentUser?.name || 'Ты');
     document.getElementById('top-me-score').textContent = `${categoryIcons[category]} ${myScore}${suffix}`;
   } else {
     meEl.classList.add('hidden');
@@ -1132,7 +1129,7 @@ const openMetricModal = async (metric) => {
         return `<div class="user-row">
           <div class="user-avatar-sm">${rankIcon}</div>
           <div class="user-info">
-            <div class="user-name">${escapeHtml(u.name)}</div>
+            <div class="user-name">@${escapeHtml(u.name)}</div>
             <div class="user-sub">⭐ ${u.reputation} · Ур. ${u.level}</div>
           </div>
         </div>`;
@@ -1215,7 +1212,7 @@ const openOnlineModal = async () => {
           <div class="user-online-dot"></div>
         </div>
         <div class="user-info">
-          <div class="user-name">${escapeHtml(u.name)}</div>
+          <div class="user-name">@${escapeHtml(u.name)}</div>
           <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
         </div>
         <div class="user-action">›</div>
@@ -1280,7 +1277,7 @@ const openFavoritesModal = async () => {
           ${u.isOnline ? '<div class="user-online-dot"></div>' : ''}
         </div>
         <div class="user-info">
-          <div class="user-name">${escapeHtml(u.name)}</div>
+          <div class="user-name">@${escapeHtml(u.name)}</div>
           <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
         </div>
         <div class="user-action">›</div>

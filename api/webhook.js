@@ -20,6 +20,7 @@ module.exports = async (req, res) => {
     const { message, callback_query } = req.body;
     if (!process.env.BOT_TOKEN) return res.status(500).send('No token');
 
+    // ========== GET USER ==========
     const getUser = async (chatId) => {
       try {
         const r = await query(
@@ -37,6 +38,7 @@ module.exports = async (req, res) => {
       }
     };
 
+    // ========== CALLBACK QUERY ==========
     if (callback_query) {
       const chatId = callback_query.message?.chat?.id || callback_query.from.id;
       const messageId = callback_query.message?.message_id;
@@ -58,12 +60,14 @@ module.exports = async (req, res) => {
 
       const ctx = { edit, user, chatId, messageId, isAdmin, isModerator, userState, sendMessage };
 
+      // Меню
       if (data === 'menu') {
         const { buildMainMenu } = require('../lib/menu');
         await edit('🤖 *Главное меню*', 'Markdown', buildMainMenu(user));
         return res.status(200).send('OK');
       }
 
+      // ===== ТУРНИР =====
       if (data === 'menu_tournament') {
         try {
           const { renderTournamentCard } = require('../lib/tournament');
@@ -89,6 +93,7 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // Порядок важен
       if (await handleShopCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleRoleCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleAdminCallback(data, ctx)) return res.status(200).send('OK');
@@ -120,7 +125,7 @@ module.exports = async (req, res) => {
 
     const ctx = { send, user, chatId, isAdmin, isModerator, userState, sendMessage };
 
-    // ========== DEEP LINKS ==========
+    // ========== DEEP LINKS (/start <param>) ==========
     if (text.startsWith('/start ') || text.startsWith('/start@')) {
       const parts = text.split(' ');
       const param = parts[1] || '';
@@ -130,7 +135,60 @@ module.exports = async (req, res) => {
       }
     }
 
-    // ========== /reply_task ==========
+    // ========== СМЕНА НИКА (/nick <ник>) ==========
+    if (text.startsWith('/nick')) {
+      if (!user) {
+        await send('❌ *Сначала привяжи аккаунт:* /link your@email.com');
+        return res.status(200).send('OK');
+      }
+
+      const parts = text.split(/\s+/);
+      const newNick = parts[1];
+
+      if (!newNick) {
+        const { getNicknameInfo } = require('../lib/nickname');
+        const info = await getNicknameInfo(user.id);
+        if (!info) {
+          await send('❌ *Ошибка загрузки ника*');
+          return res.status(200).send('OK');
+        }
+        const cdLine = info.canChange
+          ? '✅ _Можешь менять ник прямо сейчас_'
+          : `⏳ _Смена доступна через *${info.daysLeft} дн.*_`;
+        await send(
+          `🎭 *Твой ник:* \`${info.nickname}\`\n\n` +
+          `_Формат:_ \`/nick новый_ник\`\n` +
+          `_Правила:_ 3-20 символов, латиница, цифры, \`_\`. Начинается с буквы.\n\n` +
+          cdLine,
+          'Markdown',
+          { inline_keyboard: [[{ text: '🔙 В меню', callback_data: 'menu' }]] }
+        );
+        return res.status(200).send('OK');
+      }
+
+      const { setNickname } = require('../lib/nickname');
+      const result = await setNickname(user.id, newNick);
+
+      if (!result.ok) {
+        await send(
+          `❌ *${result.error}*\n\n_Формат:_ \`/nick новый_ник\``,
+          'Markdown',
+          { inline_keyboard: [[{ text: '🔙 В меню', callback_data: 'menu' }]] }
+        );
+        return res.status(200).send('OK');
+      }
+
+      await send(
+        `✅ *Ник обновлён!*\n\n` +
+        `🎭 Теперь ты: \`${result.nickname}\`\n\n` +
+        `_Следующая смена через 7 дней._`,
+        'Markdown',
+        { inline_keyboard: [[{ text: '👤 Профиль', callback_data: 'profile' }]] }
+      );
+      return res.status(200).send('OK');
+    }
+
+    // ========== ОТВЕТ В ЧАТ ЗАДАНИЯ (/reply_task <taskId> <текст>) ==========
     if (text.startsWith('/reply_task')) {
       if (!user) { await send('❌ *Сначала привяжи аккаунт:* /link your@email.com'); return res.status(200).send('OK'); }
 
@@ -159,6 +217,7 @@ module.exports = async (req, res) => {
 
         await send('✅ *Сообщение отправлено*');
 
+        // Push получателю через notifyUser
         const parties = await getTaskParties(taskId);
         const toUserId = parties.creatorId === user.id ? parties.playerId : parties.creatorId;
         if (toUserId) {
