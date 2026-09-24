@@ -16,6 +16,7 @@ const {
   notifyReferralEarnings,
 } = require('../lib/helpers');
 const { sendMessage } = require('../lib/telegram');
+const { notifyUser } = require('../lib/notify');
 const { applyBoost } = require('../lib/shop');
 
 const verifyInitData = (initData) => {
@@ -72,7 +73,6 @@ const getTaskDetail = async (taskId, userId) => {
   const isPlayer = t.playerIdRef === userId;
   const isCreator = t.creatorId === userId;
 
-  // ⭐ Проверка: оставлял ли текущий юзер отзыв по этому заданию
   const reviewRes = await query(
     `SELECT 1 FROM "Review" WHERE "taskId"=$1 AND "reviewerId"=$2 LIMIT 1`,
     [taskId, userId]
@@ -80,26 +80,16 @@ const getTaskDetail = async (taskId, userId) => {
   const hasReview = reviewRes.rows.length > 0;
 
   return {
-    id: t.id,
-    title: t.title,
-    description: t.description || '',
-    reward: t.reward,
-    status: t.status,
-    approve,
-    reject,
-    myVote,
-    creatorId: t.creatorId,
-    creatorName: t.creatorDisplay || t.creatorName,
-    playerId: t.playerIdRef,
-    playerName: t.playerDisplay || t.playerName,
-    hasVideo: !!t.videoUrl,
-    videoUrl: t.videoUrl,
-    deadlineAt: t.deadlineAt,
-    createdAt: t.createdAt,
-    isCreator,
-    isPlayer,
+    id: t.id, title: t.title, description: t.description || '',
+    reward: t.reward, status: t.status,
+    approve, reject, myVote,
+    creatorId: t.creatorId, creatorName: t.creatorDisplay || t.creatorName,
+    playerId: t.playerIdRef, playerName: t.playerDisplay || t.playerName,
+    hasVideo: !!t.videoUrl, videoUrl: t.videoUrl,
+    deadlineAt: t.deadlineAt, createdAt: t.createdAt,
+    isCreator, isPlayer,
     canUpload: isPlayer && t.status === 'taken',
-    hasReview, // ⭐ NEW
+    hasReview,
   };
 };
 
@@ -123,14 +113,13 @@ module.exports = async (req, res) => {
     const user = userRes.rows[0];
     if (user.isBanned) return res.status(403).json({ ok: false, error: 'Аккаунт заблокирован' });
 
-    // ==== Получить детали ====
     if (!action) {
       const detail = await getTaskDetail(taskId, user.id);
       if (!detail) return res.status(404).json({ ok: false, error: 'Задание не найдено' });
       return res.status(200).json({ ok: true, task: detail, userRole: user.role });
     }
 
-    // ==== Взять задание ====
+    // ═════════ ВЗЯТЬ ═════════
     if (action === 'take') {
       if (!user.roleChosen) return res.status(400).json({ ok: false, error: 'Сначала выбери роль в боте' });
       if (user.role !== 'player') return res.status(400).json({ ok: false, error: 'Только игроки могут брать задания' });
@@ -153,16 +142,20 @@ module.exports = async (req, res) => {
         await notifyAchievements(user.id, achs, sendMessage);
       } catch (e) { console.error('after take:', e); }
 
-      const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
-      if (cr.rows[0]?.telegramChatId) {
-        await sendMessage(cr.rows[0].telegramChatId, `🎯 *Задание взято!*\n📌 ${t.title}\n👤 ${user.name}`);
-      }
+      await notifyUser(t.creatorId, {
+        message: `🎯 Задание "${t.title}" взято игроком ${user.name}`,
+        pushText: `🎯 *Задание взято!*\n📌 ${t.title}\n👤 ${user.name}`,
+        type: 'task',
+        icon: '🎯',
+        linkType: 'task',
+        linkId: t.id,
+      });
 
       const detail = await getTaskDetail(taskId, user.id);
       return res.status(200).json({ ok: true, action: 'taken', task: detail });
     }
 
-    // ==== Отказаться ====
+    // ═════════ ОТКАЗАТЬСЯ ═════════
     if (action === 'abandon') {
       const r = await query(
         `UPDATE "Task" SET status='open', "playerId"=NULL
@@ -173,16 +166,20 @@ module.exports = async (req, res) => {
       if (r.rowCount === 0) return res.status(400).json({ ok: false, error: 'Не удалось отказаться' });
 
       const t = r.rows[0];
-      const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
-      if (cr.rows[0]?.telegramChatId) {
-        await sendMessage(cr.rows[0].telegramChatId, `↩️ Игрок отказался от задания «${t.title}»`);
-      }
+      await notifyUser(t.creatorId, {
+        message: `↩️ Игрок отказался от задания «${t.title}»`,
+        pushText: `↩️ *Игрок отказался*\n📌 ${t.title}\n\n_Задание снова открыто._`,
+        type: 'task',
+        icon: '↩️',
+        linkType: 'task',
+        linkId: t.id,
+      });
 
       const detail = await getTaskDetail(taskId, user.id);
       return res.status(200).json({ ok: true, action: 'abandoned', task: detail });
     }
 
-    // ==== Голосование ====
+    // ═════════ ГОЛОСОВАНИЕ ═════════
     if (action === 'vote_approve' || action === 'vote_reject') {
       const value = action === 'vote_approve' ? 'approve' : 'reject';
 
@@ -206,13 +203,14 @@ module.exports = async (req, res) => {
         await notifyAchievements(user.id, achs, sendMessage);
       } catch (e) { console.error('after vote:', e); }
 
-      // Проверяем итог
       const vr = await query(
         `SELECT value, COUNT(*)::int AS cnt FROM "Vote" WHERE "taskId"=$1 GROUP BY value`,
         [taskId]
       );
       const approve = vr.rows.find(x => x.value === 'approve')?.cnt || 0;
+      const reject = vr.rows.find(x => x.value === 'reject')?.cnt || 0;
 
+      // ── 5+ 👍 → approved ──
       if (approve >= 5) {
         const tr = await query(
           `UPDATE "Task" SET status='approved' WHERE id=$1 AND status='voting' RETURNING *`,
@@ -242,24 +240,71 @@ module.exports = async (req, res) => {
           const xpPlayer = await addExperience(t.playerId, 50);
           await checkDailyQuests(t.playerId, 'task_completed', 1);
           const achsPlayer = await checkAchievements(t.playerId);
+
+          let m = `🎉 *Задание выполнено!*\n📌 ${t.title}\n💰 +${netAmount} ₽`;
+          if (commission > 0) m += `\n_Комиссия: -${commission} ₽_`;
+          if (mult > 1) m += `\n🔥 _Streak ×${mult}_`;
+          if (boost) m += `\n⚡ _${boost.name}_`;
+
+          await notifyUser(t.playerId, {
+            message: `🎉 Задание "${t.title}" выполнено! +${netAmount} ₽`,
+            pushText: m,
+            type: 'task',
+            icon: '🎉',
+            linkType: 'task',
+            linkId: t.id,
+          });
+
           await notifyLevelUp(t.playerId, xpPlayer, sendMessage);
           await notifyAchievements(t.playerId, achsPlayer, sendMessage);
 
           const refEarnings = await processReferralEarnings(t.playerId, netAmount);
           await notifyReferralEarnings(refEarnings, sendMessage);
 
-          const pl = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.playerId]);
-          if (pl.rows[0]?.telegramChatId) {
-            let m = `🎉 *Задание выполнено!*\n📌 ${t.title}\n💰 +${netAmount} ₽`;
-            if (commission > 0) m += `\n_Комиссия: -${commission} ₽_`;
-            if (mult > 1) m += `\n🔥 _Streak ×${mult}_`;
-            if (boost) m += `\n⚡ _${boost.name}_`;
-            await sendMessage(pl.rows[0].telegramChatId, m);
-          }
-          const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
-          if (cr.rows[0]?.telegramChatId) {
-            await sendMessage(cr.rows[0].telegramChatId, `✅ *Задание "${t.title}" выполнено!*`);
-          }
+          await notifyUser(t.creatorId, {
+            message: `✅ Задание "${t.title}" выполнено! Оставь отзыв игроку.`,
+            pushText: `✅ *Задание выполнено!*\n📌 ${t.title}\n\n_Оставь отзыв игроку — кнопка «⭐ Оставить отзыв» в профиле._`,
+            type: 'task',
+            icon: '✅',
+            linkType: 'task',
+            linkId: t.id,
+          });
+        }
+      }
+
+      // ── 5+ 👎 → rejected (НОВОЕ) ──
+      if (reject >= 5) {
+        const tr = await query(
+          `UPDATE "Task" SET status='rejected' WHERE id=$1 AND status='voting' RETURNING *`,
+          [taskId]
+        );
+        if (tr.rowCount > 0) {
+          const t = tr.rows[0];
+
+          await notifyUser(t.playerId, {
+            message: `❌ Задание "${t.title}" отклонено`,
+            pushText: `❌ *Задание отклонено*\n📌 ${t.title}\n\n_Зрители проголосовали против._`,
+            type: 'task',
+            icon: '❌',
+            linkType: 'task',
+            linkId: t.id,
+          });
+
+          await query('UPDATE "User" SET balance = balance + $1 WHERE id=$2', [t.reward, t.creatorId]);
+          await query(
+            `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
+             VALUES ($1,'refund',$2,'completed',$3,NOW())`,
+            [t.creatorId, t.reward, `Возврат за "${t.title}" (отклонено)`]
+          );
+
+          await notifyUser(t.creatorId, {
+            message: `❌ Задание "${t.title}" отклонено. Возврат ${t.reward} ₽`,
+            pushText: `❌ *Задание отклонено*\n📌 ${t.title}\n\n💰 Возврат: *+${t.reward} ₽*`,
+            type: 'task',
+            icon: '💰',
+            linkType: 'task',
+            linkId: t.id,
+          });
         }
       }
 

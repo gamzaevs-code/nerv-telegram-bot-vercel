@@ -3,13 +3,13 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
-const { sendMessage } = require('../lib/telegram');
 const {
   getChatHistory,
   sendChatMessage,
   getTaskParties,
   getTotalUnreadChats,
 } = require('../lib/chat');
+const { notifyUser } = require('../lib/notify');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
@@ -46,7 +46,6 @@ module.exports = async (req, res) => {
     if (meRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
     const me = meRes.rows[0];
 
-    // ===== Список всех чатов (по заданиям) =====
     if (action === 'list') {
       const r = await query(
         `SELECT DISTINCT t.id AS "taskId", t.title, t.status,
@@ -63,7 +62,6 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, chats: r.rows });
     }
 
-    // ===== История по заданию =====
     if (action === 'history') {
       if (!taskId) return res.status(400).json({ ok: false, error: 'taskId обязателен' });
       const hist = await getChatHistory(taskId, me.id);
@@ -71,7 +69,6 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, messages: hist.messages });
     }
 
-    // ===== Отправить сообщение =====
     if (action === 'send') {
       if (!taskId || !message || !message.trim()) {
         return res.status(400).json({ ok: false, error: 'Пустое сообщение' });
@@ -79,25 +76,29 @@ module.exports = async (req, res) => {
       const sent = await sendChatMessage(taskId, me.id, message);
       if (!sent.ok) return res.status(400).json(sent);
 
-      // Push получателю в Telegram
+      // 🔔 Push получателю через notifyUser
       const parties = await getTaskParties(taskId);
-      const toChatId = parties.creatorId === me.id ? parties.player_chat : parties.creator_chat;
+      const toUserId = parties.creatorId === me.id ? parties.playerId : parties.creatorId;
 
-      if (toChatId) {
-        const pushText =
-          `💬 *Новое сообщение по заданию*\n\n` +
-          `📌 ${parties.title}\n` +
-          `👤 От: *${me.name}*\n\n` +
-          `_${message.slice(0, 300)}${message.length > 300 ? '…' : ''}_\n\n` +
-          `↩️ Ответить: /reply\\_task ${taskId} <текст>`;
-        try { await sendMessage(toChatId, pushText, 'Markdown'); }
-        catch (err) { console.error('push chat:', err); }
+      if (toUserId) {
+        await notifyUser(toUserId, {
+          message: `💬 Новое сообщение по "${parties.title}" от ${me.name}`,
+          pushText:
+            `💬 *Новое сообщение по заданию*\n\n` +
+            `📌 ${parties.title}\n` +
+            `👤 От: *${me.name}*\n\n` +
+            `_${message.slice(0, 300)}${message.length > 300 ? '…' : ''}_\n\n` +
+            `↩️ Ответить: /reply\\_task ${taskId} <текст>`,
+          type: 'chat',
+          icon: '💬',
+          linkType: 'task',
+          linkId: taskId,
+        });
       }
 
       return res.status(200).json({ ok: true, messageId: sent.messageId, createdAt: sent.createdAt });
     }
 
-    // ===== Общий счётчик =====
     if (action === 'unread_count') {
       const c = await getTotalUnreadChats(me.id);
       return res.status(200).json({ ok: true, count: c });

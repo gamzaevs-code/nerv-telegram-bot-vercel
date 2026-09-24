@@ -9,6 +9,7 @@ const { handleProfileCallback } = require('../lib/profile');
 const { handleSocialCallback, handleSocialStep } = require('../lib/social');
 const { handleTextCommand } = require('../lib/texts');
 const { handleStartParam } = require('../lib/deeplinks');
+const { notifyUser } = require('../lib/notify');
 
 const userState = {};
 
@@ -19,7 +20,6 @@ module.exports = async (req, res) => {
     const { message, callback_query } = req.body;
     if (!process.env.BOT_TOKEN) return res.status(500).send('No token');
 
-    // ========== GET USER ==========
     const getUser = async (chatId) => {
       try {
         const r = await query(
@@ -37,7 +37,6 @@ module.exports = async (req, res) => {
       }
     };
 
-    // ========== CALLBACK QUERY ==========
     if (callback_query) {
       const chatId = callback_query.message?.chat?.id || callback_query.from.id;
       const messageId = callback_query.message?.message_id;
@@ -59,14 +58,12 @@ module.exports = async (req, res) => {
 
       const ctx = { edit, user, chatId, messageId, isAdmin, isModerator, userState, sendMessage };
 
-      // Меню
       if (data === 'menu') {
         const { buildMainMenu } = require('../lib/menu');
         await edit('🤖 *Главное меню*', 'Markdown', buildMainMenu(user));
         return res.status(200).send('OK');
       }
 
-      // ===== ТУРНИР =====
       if (data === 'menu_tournament') {
         try {
           const { renderTournamentCard } = require('../lib/tournament');
@@ -92,7 +89,6 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
-      // Порядок важен
       if (await handleShopCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleRoleCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleAdminCallback(data, ctx)) return res.status(200).send('OK');
@@ -124,7 +120,7 @@ module.exports = async (req, res) => {
 
     const ctx = { send, user, chatId, isAdmin, isModerator, userState, sendMessage };
 
-    // ========== DEEP LINKS (/start <param>) ==========
+    // ========== DEEP LINKS ==========
     if (text.startsWith('/start ') || text.startsWith('/start@')) {
       const parts = text.split(' ');
       const param = parts[1] || '';
@@ -134,7 +130,7 @@ module.exports = async (req, res) => {
       }
     }
 
-    // ========== ОТВЕТ В ЧАТ ЗАДАНИЯ (/reply_task <taskId> <текст>) ==========
+    // ========== /reply_task ==========
     if (text.startsWith('/reply_task')) {
       if (!user) { await send('❌ *Сначала привяжи аккаунт:* /link your@email.com'); return res.status(200).send('OK'); }
 
@@ -163,19 +159,23 @@ module.exports = async (req, res) => {
 
         await send('✅ *Сообщение отправлено*');
 
-        // Push получателю
         const parties = await getTaskParties(taskId);
-        const toChatId = parties.creatorId === user.id ? parties.player_chat : parties.creator_chat;
-        if (toChatId) {
+        const toUserId = parties.creatorId === user.id ? parties.playerId : parties.creatorId;
+        if (toUserId) {
           const myName = user.displayName || user.name;
-          const pushText =
-            `💬 *Новое сообщение по заданию*\n\n` +
-            `📌 ${parties.title}\n` +
-            `👤 От: *${myName}*\n\n` +
-            `_${msgText.slice(0, 300)}${msgText.length > 300 ? '…' : ''}_\n\n` +
-            `↩️ Ответить: /reply\\_task ${taskId} <текст>`;
-          try { await sendMessage(toChatId, pushText, 'Markdown'); }
-          catch (err) { console.error('push /reply_task:', err); }
+          await notifyUser(toUserId, {
+            message: `💬 Новое сообщение по "${parties.title}" от ${myName}`,
+            pushText:
+              `💬 *Новое сообщение по заданию*\n\n` +
+              `📌 ${parties.title}\n` +
+              `👤 От: *${myName}*\n\n` +
+              `_${msgText.slice(0, 300)}${msgText.length > 300 ? '…' : ''}_\n\n` +
+              `↩️ Ответить: /reply\\_task ${taskId} <текст>`,
+            type: 'chat',
+            icon: '💬',
+            linkType: 'task',
+            linkId: taskId,
+          });
         }
       } catch (e) {
         console.error('/reply_task:', e);
@@ -220,10 +220,16 @@ module.exports = async (req, res) => {
       }
       await query(`UPDATE "Task" SET status='voting', "videoUrl"=$1 WHERE id=$2`, [fileId, t.id]);
       await send(`✅ *Видео загружено:*\n📌 ${t.title}\n\nЗрители могут голосовать.`);
-      const cr = await query('SELECT "telegramChatId" FROM "User" WHERE id=$1', [t.creatorId]);
-      if (cr.rows[0]?.telegramChatId) {
-        await sendMessage(cr.rows[0].telegramChatId, `🎬 *Видео для:*\n📌 ${t.title}`);
-      }
+
+      // 🔔 Уведомление создателю через notifyUser
+      await notifyUser(t.creatorId, {
+        message: `🎬 Видео для задания: ${t.title}`,
+        pushText: `🎬 *Видео загружено!*\n\n📌 ${t.title}\n\n_Зрители могут голосовать._`,
+        type: 'task',
+        icon: '🎬',
+        linkType: 'task',
+        linkId: t.id,
+      });
       return res.status(200).send('OK');
     }
 
