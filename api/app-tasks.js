@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: список заданий для Mini App (с онлайн-статусами)
+// API: список заданий для Mini App (с онлайн-статусами и рейтингом)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -44,7 +44,6 @@ module.exports = async (req, res) => {
     const tgUser = verifyInitData(initData);
     const chatId = String(tgUser.id);
 
-    // Получаем пользователя (для проверки прав)
     const userRes = await query(
       `SELECT id, role, "isBanned" FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
@@ -54,7 +53,6 @@ module.exports = async (req, res) => {
     const user = userRes.rows[0];
     if (user.isBanned) return res.status(403).json({ ok: false, error: 'Аккаунт заблокирован' });
 
-    // Фильтр по статусу
     let statusFilter = '';
     if (filter === 'open') statusFilter = `AND t.status = 'open'`;
     else if (filter === 'voting') statusFilter = `AND t.status = 'voting'`;
@@ -67,6 +65,8 @@ module.exports = async (req, res) => {
               u.name AS "creatorName",
               COALESCE(u."displayName", u.name) AS "creatorDisplay",
               u.id AS "creatorId",
+              u."ratingAvg" AS "creatorRatingAvg",
+              u."ratingCount" AS "creatorRatingCount",
               p.name AS "playerName",
               pres."lastSeen" AS "creatorLastSeen",
               (SELECT COUNT(*)::int FROM "Vote" WHERE "taskId"=t.id AND value='approve') AS approve,
@@ -90,6 +90,8 @@ module.exports = async (req, res) => {
       reject: t.reject,
       creatorId: t.creatorId,
       creatorName: t.creatorDisplay || t.creatorName,
+      creatorRatingAvg: Number(t.creatorRatingAvg) || 0,
+      creatorRatingCount: t.creatorRatingCount || 0,
       isCreatorOnline: t.creatorLastSeen
         ? (Date.now() - new Date(t.creatorLastSeen).getTime()) / 60000 < ONLINE_THRESHOLD_MIN
         : false,

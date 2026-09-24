@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: рейтинги игроков для Mini App
+// API: рейтинги игроков для Mini App (+ рейтинг по отзывам)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -46,31 +46,42 @@ module.exports = async (req, res) => {
 
     let orderBy = '';
     let scoreField = '';
-    if (category === 'reputation') { orderBy = 'reputation DESC'; scoreField = 'reputation'; }
-    else if (category === 'balance') { orderBy = 'balance DESC'; scoreField = 'balance'; }
-    else if (category === 'completed') { orderBy = '"completedTasksCount" DESC'; scoreField = '"completedTasksCount"'; }
-    else return res.status(400).json({ ok: false, error: 'Неизвестная категория' });
+    let whereExtra = '';
 
-    // Топ-20
+    if (category === 'reputation') {
+      orderBy = 'reputation DESC'; scoreField = 'reputation';
+    } else if (category === 'balance') {
+      orderBy = 'balance DESC'; scoreField = 'balance';
+    } else if (category === 'completed') {
+      orderBy = '"completedTasksCount" DESC'; scoreField = '"completedTasksCount"';
+    } else if (category === 'rating') {
+      // ⭐ Рейтинг по отзывам (минимум 1 отзыв чтобы не засорять нулями)
+      orderBy = '"ratingAvg" DESC, "ratingCount" DESC'; scoreField = '"ratingAvg"';
+      whereExtra = `AND "ratingCount" >= 1`;
+    } else {
+      return res.status(400).json({ ok: false, error: 'Неизвестная категория' });
+    }
+
     const topRes = await query(
       `SELECT id, name, COALESCE("displayName", name) AS display,
               ${scoreField} AS score, level,
+              "ratingAvg", "ratingCount",
               (SELECT COUNT(*)::int FROM "UserAchievement" WHERE "userId"="User".id) AS achievements
        FROM "User"
-       WHERE "isBanned" = false
+       WHERE "isBanned" = false ${whereExtra}
        ORDER BY ${orderBy}
        LIMIT 20`
     );
 
-    // Моя позиция
     const myScoreRes = await query(
       `SELECT ${scoreField} AS my_score FROM "User" WHERE id = $1`,
       [myId]
     );
     const myScore = myScoreRes.rows[0]?.my_score || 0;
+
     const myRankRes = await query(
       `SELECT COUNT(*)::int + 1 AS pos FROM "User"
-       WHERE "isBanned" = false AND ${scoreField} > $1`,
+       WHERE "isBanned" = false AND ${scoreField} > $1 ${whereExtra.replace(/AND/, 'AND')}`,
       [myScore]
     );
     const myRank = myRankRes.rows[0].pos;
@@ -82,6 +93,8 @@ module.exports = async (req, res) => {
       score: u.score,
       level: u.level || 1,
       achievements: u.achievements,
+      ratingAvg: Number(u.ratingAvg) || 0,
+      ratingCount: u.ratingCount || 0,
       isMe: u.id === myId,
     }));
 
