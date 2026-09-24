@@ -59,7 +59,6 @@ const init = async () => {
     await Promise.all([loadTasks(), loadTop(), loadActivity(), loadNotifications()]);
     showApp();
 
-    // Обновляем онлайн каждые 60 сек
     setInterval(loadNotifications, 60000);
   } catch (e) {
     console.error('init error:', e);
@@ -118,13 +117,9 @@ const renderProfile = (p) => {
   document.getElementById('profile-ref-code').textContent = p.referralCode;
   document.getElementById('favorites-count').textContent = '—';
 
-  // Спарклайн
   renderSparkline(p.sparkline);
-  // Календарь streak
   renderStreakCalendar(p.streakDays);
-  // Таймер бонуса
   renderBonusTimer(p.nextBonusHours);
-  // Превью достижений
   renderAchPreview(p.achievements.preview);
 };
 
@@ -545,11 +540,11 @@ const markAllRead = async () => {
   } catch (e) { console.error('markAllRead:', e); }
 };
 
-// ========== МЕТРИКИ (кликабельные) ==========
+// ========== МЕТРИКИ (кликабельные) — /api/app-data ==========
 const openMetricModal = async (metric) => {
   let data = null;
   try {
-    const res = await fetch('/api/app-metric', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, metric }),
     });
@@ -622,7 +617,7 @@ const openMetricModal = async (metric) => {
       </p>` +
       data.achievements.map(a => `
         <div class="user-row" style="cursor:default;">
-          <div class="user-avatar-sm ${a.isUnlocked ? '' : ''}" style="font-size:20px;${a.isUnlocked ? '' : 'filter:grayscale(1);opacity:0.4;'}">${a.icon}</div>
+          <div class="user-avatar-sm" style="font-size:20px;${a.isUnlocked ? '' : 'filter:grayscale(1);opacity:0.4;'}">${a.icon}</div>
           <div class="user-info">
             <div class="user-name">${escapeHtml(a.name)}</div>
             <div class="user-sub">${escapeHtml(a.description || '')} · 🎁 ${a.reward} ₽</div>
@@ -640,13 +635,13 @@ const closeMetricModal = () => {
   if (m) m.classList.add('hidden');
 };
 
-// ========== ОНЛАЙН / ИЗБРАННЫЕ ==========
+// ========== ОНЛАЙН / ИЗБРАННЫЕ — /api/app-data ==========
 const openOnlineModal = async () => {
   let online = [];
   try {
-    const res = await fetch('/api/app-online', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData }),
+      body: JSON.stringify({ initData, action: 'online' }),
     });
     const data = await res.json();
     if (data.ok) online = data.online;
@@ -702,9 +697,9 @@ const closeOnlineModal = () => {
 const openFavoritesModal = async () => {
   let favorites = [];
   try {
-    const res = await fetch('/api/app-favorites', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData }),
+      body: JSON.stringify({ initData, action: 'favorites' }),
     });
     const data = await res.json();
     if (data.ok) favorites = data.favorites;
@@ -759,9 +754,9 @@ const closeFavModal = () => {
 
 window.addFavorite = async (targetId) => {
   try {
-    await fetch('/api/app-favorites', {
+    await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, action: 'toggle', targetId }),
+      body: JSON.stringify({ initData, action: 'favorites_toggle', targetId }),
     });
     tg?.HapticFeedback?.notificationOccurred?.('success');
   } catch (e) { console.error(e); }

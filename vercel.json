@@ -1,12 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/cron-tournament",
+      "path": "/api/cron?task=tournament",
       "schedule": "0 21 * * *"
     },
     {
-      "path": "/api/cron-daily-summary",
-      "schedule": "0 21 * * *"
+      "path": "/api/cron?task=summary",
+      "schedule": "1 21 * * *"
     }
   ]
 }
