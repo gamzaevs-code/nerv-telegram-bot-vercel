@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// NERV MINI APP — логика фронтенда (v3: чат по заданию)
+// NERV MINI APP — логика фронтенда (v4: отзывы и рейтинг)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 
 const tg = window.Telegram?.WebApp;
@@ -56,6 +56,7 @@ const init = async () => {
         document.getElementById('online-count').textContent = profileData.profile.onlineCount;
         document.getElementById('online-count-profile').textContent = profileData.profile.onlineCount;
       }
+      renderProfileRating(profileData.profile);
     }
 
     await Promise.all([loadTasks(), loadTop(), loadActivity(), loadNotifications()]);
@@ -85,6 +86,7 @@ const loadProfile = async () => {
     const data = await res.json();
     if (data.ok) {
       renderProfile(data.profile);
+      renderProfileRating(data.profile);
       document.getElementById('create-balance').textContent =
         `${Number(data.profile.balance).toLocaleString('ru')} ₽`;
     }
@@ -123,6 +125,18 @@ const renderProfile = (p) => {
   renderStreakCalendar(p.streakDays);
   renderBonusTimer(p.nextBonusHours);
   renderAchPreview(p.achievements.preview);
+};
+
+const renderProfileRating = (p) => {
+  const valEl = document.getElementById('profile-rating-value');
+  const cntEl = document.getElementById('profile-rating-count');
+  if (!valEl) return;
+  const avg = p.ratingAvg || 0;
+  const count = p.ratingCount || 0;
+  valEl.textContent = count > 0 ? `${avg} / 5` : '— / 5';
+  cntEl.textContent = count > 0
+    ? `${count} ${count === 1 ? 'отзыв' : count < 5 ? 'отзыва' : 'отзывов'}`
+    : 'Пока нет отзывов';
 };
 
 const renderSparkline = (spark) => {
@@ -307,9 +321,13 @@ const renderTaskModal = (t, userRole) => {
     }
   }
 
-  // 💬 ЧАТ
   if (canChat) {
     buttons.push(`<button class="btn-chat" data-action="chat">💬 Написать ${t.isPlayer ? 'создателю' : 'игроку'}</button>`);
+  }
+
+  // 💬 Отзыв (для создателя, если задание одобрено и есть игрок)
+  if (t.isCreator && t.status === 'approved' && t.playerId && !t.hasReview) {
+    buttons.push(`<button class="btn-review-primary" data-action="leave_review">⭐ Оставить отзыв</button>`);
   }
 
   if (buttons.length === 0) buttons.push(`<button class="btn-secondary" disabled>Действий нет</button>`);
@@ -336,6 +354,23 @@ const handleTaskAction = async (action) => {
     tg?.HapticFeedback?.impactOccurred?.('light');
     closeTaskModal();
     openChatModal(currentTaskId);
+    return;
+  }
+
+  if (action === 'leave_review') {
+    tg?.HapticFeedback?.impactOccurred?.('light');
+    // Нужно знать playerId — забираем из задачи
+    try {
+      const res = await fetch('/api/app-task-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, taskId: currentTaskId }),
+      });
+      const data = await res.json();
+      if (data.ok && data.task.playerId) {
+        closeTaskModal();
+        openRatingModal(currentTaskId, data.task.playerId, data.task.title);
+      }
+    } catch (e) { console.error(e); }
     return;
   }
 
@@ -402,7 +437,6 @@ const openChatModal = async (taskId) => {
   modal.classList.remove('hidden');
   await loadChatHistory(taskId);
 
-  // Поллинг каждые 5 сек
   if (chatPollTimer) clearInterval(chatPollTimer);
   chatPollTimer = setInterval(() => {
     if (chatTaskId) loadChatHistory(chatTaskId, true);
@@ -475,6 +509,191 @@ const sendChatMessage = async () => {
   }
 };
 
+// ========== ОТЗЫВЫ И РЕЙТИНГ ==========
+
+// Модалка отзывов
+const openReviewsModal = (title) => {
+  const modal = document.getElementById('reviews-modal');
+  document.getElementById('reviews-modal-title').textContent = title;
+  document.getElementById('reviews-modal-body').innerHTML = '<div class="modal-loading">Загрузка...</div>';
+  modal.classList.remove('hidden');
+};
+
+const closeReviewsModal = () => {
+  document.getElementById('reviews-modal').classList.add('hidden');
+};
+
+// Мои отзывы (для игрока)
+const openMyReviews = async () => {
+  openReviewsModal('⭐ МОИ ОТЗЫВЫ');
+  const body = document.getElementById('reviews-modal-body');
+
+  try {
+    const res = await fetch('/api/app-feed', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'reviews_player', playerId: currentUser?.id }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    if (!data.reviews.length) {
+      body.innerHTML = '<div class="reviews-empty">⭐ Пока нет отзывов<br><small>Выполняй задания, чтобы получать оценки</small></div>';
+      return;
+    }
+
+    body.innerHTML = data.reviews.map(r => `
+      <div class="review-item">
+        <div class="review-head">
+          <span class="review-stars">${'⭐'.repeat(r.rating)}</span>
+          <b>${escapeHtml(r.reviewer_name || 'Аноним')}</b>
+        </div>
+        <div class="review-task">📋 ${escapeHtml(r.task_title || '—')}</div>
+        ${r.comment ? `<div class="review-comment">${escapeHtml(r.comment)}</div>` : ''}
+        <div class="review-date">${new Date(r.createdAt).toLocaleDateString('ru-RU')}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="reviews-empty">❌ ${escapeHtml(e.message)}</div>`;
+  }
+};
+
+// Задания, ожидающие отзыва (для создателя)
+const openPendingReviews = async () => {
+  openReviewsModal('📝 ОСТАВИТЬ ОТЗЫВ');
+  const body = document.getElementById('reviews-modal-body');
+
+  try {
+    const res = await fetch('/api/app-feed', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'reviews_pending' }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    if (!data.pending.length) {
+      body.innerHTML = '<div class="reviews-empty">📝 Нет заданий, ожидающих отзыва<br><small>Отзыв можно оставить после одобрения задания</small></div>';
+      return;
+    }
+
+    body.innerHTML = data.pending.map(p => `
+      <div class="pending-task">
+        <div class="pending-task-title">${escapeHtml(p.title)}</div>
+        <div class="pending-task-meta">👤 ${escapeHtml(p.player_name || 'Игрок')} • 💰 ${p.reward} ₽</div>
+        <button class="btn-review-primary" onclick="openRatingModal(${p.id}, ${p.playerId}, '${escapeAttr(p.title)}')">⭐ Оценить</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="reviews-empty">❌ ${escapeHtml(e.message)}</div>`;
+  }
+};
+
+// Модалка с выбором звёзд
+window.openRatingModal = (taskId, playerId, taskTitle) => {
+  openReviewsModal('⭐ ОЦЕНКА');
+  const body = document.getElementById('reviews-modal-body');
+
+  body.innerHTML = `
+    <div style="text-align:center;">
+      <h2 class="modal-title" style="font-size:16px;margin-bottom:4px;">${escapeHtml(taskTitle)}</h2>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Поставь оценку игроку</p>
+      <div class="rating-picker" id="rating-picker">
+        ${[1,2,3,4,5].map(n => `<span class="rating-star" data-rating="${n}">⭐</span>`).join('')}
+      </div>
+      <textarea class="rating-comment-input" id="rating-comment" placeholder="Комментарий (необязательно)" maxlength="500"></textarea>
+      <button class="btn-review-primary" id="rating-submit" disabled>Отправить</button>
+    </div>
+  `;
+
+  let selectedRating = 0;
+  const stars = body.querySelectorAll('.rating-star');
+  const submitBtn = document.getElementById('rating-submit');
+
+  stars.forEach(star => {
+    star.addEventListener('click', () => {
+      selectedRating = parseInt(star.dataset.rating, 10);
+      stars.forEach(s => {
+        s.classList.toggle('active', parseInt(s.dataset.rating, 10) <= selectedRating);
+      });
+      submitBtn.disabled = false;
+      tg?.HapticFeedback?.impactOccurred?.('light');
+    });
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    if (!selectedRating) return;
+    const comment = document.getElementById('rating-comment').value.trim() || null;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Отправляю...';
+
+    try {
+      const res = await fetch('/api/app-feed', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData,
+          action: 'reviews_create',
+          taskId, playerId, rating: selectedRating, comment,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+
+      tg?.HapticFeedback?.notificationOccurred?.('success');
+      closeReviewsModal();
+      tg?.showAlert?.('⭐ Спасибо за отзыв!');
+      loadProfile();
+    } catch (e) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Отправить';
+      tg?.HapticFeedback?.notificationOccurred?.('error');
+      tg?.showAlert?.(`❌ ${e.message}`);
+    }
+  });
+};
+
+// Топ по рейтингу
+const loadTopRated = async () => {
+  const listEl = document.getElementById('top-list');
+  listEl.innerHTML = '<p class="placeholder">Загрузка...</p>';
+  try {
+    const res = await fetch('/api/app-feed', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'reviews_top' }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    document.getElementById('top-me').classList.add('hidden');
+
+    if (!data.top.length) {
+      listEl.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⭐</div><p>Пока нет рейтинга</p></div>';
+      return;
+    }
+
+    const medals = ['🥇', '🥈', '🥉'];
+    listEl.innerHTML = data.top.map((u, i) => {
+      const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+      const rankDisplay = i < 3 ? medals[i] : `#${i + 1}`;
+      const initials = (u.name || '?').split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
+      const isMe = currentUser && u.id === currentUser.id;
+      return `
+        <div class="top-row ${isMe ? 'is-me' : ''}">
+          <div class="top-rank ${rankClass}">${rankDisplay}</div>
+          <div class="top-avatar">${initials}</div>
+          <div class="top-info">
+            <div class="top-name">${escapeHtml(u.name)}</div>
+            <div class="top-sub">${u.ratingCount} ${u.ratingCount === 1 ? 'отзыв' : u.ratingCount < 5 ? 'отзыва' : 'отзывов'}</div>
+          </div>
+          <div class="top-score">⭐ ${u.ratingAvg}</div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error('loadTopRated:', e);
+    listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить</p>';
+  }
+};
+
 // ========== ЛЕНТА (app-feed) ==========
 const loadActivity = async () => {
   const listEl = document.getElementById('activity-list');
@@ -512,6 +731,11 @@ const renderActivity = (feed) => {
 
 // ========== ТОП ==========
 const loadTop = async () => {
+  if (currentTopCategory === 'rating') {
+    await loadTopRated();
+    return;
+  }
+
   const listEl = document.getElementById('top-list');
   if (!listEl) return;
   listEl.innerHTML = '<p class="placeholder">Загрузка рейтинга...</p>';
@@ -1051,6 +1275,12 @@ const escapeHtml = (str) => {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 };
+
+const escapeAttr = (str) => {
+  if (!str) return '';
+  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
+};
+
 const renderUser = (user) => {
   // Функция-заглушка для совместимости
 };
@@ -1086,6 +1316,11 @@ document.addEventListener('click', (e) => {
 
   if (e.target.id === 'online-card') { openOnlineModal(); return; }
   if (e.target.id === 'favorites-card') { openFavoritesModal(); return; }
+
+  // ОТЗЫВЫ
+  if (e.target.id === 'btn-open-reviews') { tg?.HapticFeedback?.impactOccurred?.('light'); openMyReviews(); return; }
+  if (e.target.id === 'btn-open-pending') { tg?.HapticFeedback?.impactOccurred?.('light'); openPendingReviews(); return; }
+  if (e.target.id === 'reviews-modal-close' || e.target.id === 'reviews-modal-backdrop') { closeReviewsModal(); return; }
 
   const roleCard = e.target.closest('.role-card');
   if (roleCard) { selectRole(roleCard.dataset.role); return; }

@@ -72,6 +72,13 @@ const getTaskDetail = async (taskId, userId) => {
   const isPlayer = t.playerIdRef === userId;
   const isCreator = t.creatorId === userId;
 
+  // ⭐ Проверка: оставлял ли текущий юзер отзыв по этому заданию
+  const reviewRes = await query(
+    `SELECT 1 FROM "Review" WHERE "taskId"=$1 AND "reviewerId"=$2 LIMIT 1`,
+    [taskId, userId]
+  );
+  const hasReview = reviewRes.rows.length > 0;
+
   return {
     id: t.id,
     title: t.title,
@@ -92,6 +99,7 @@ const getTaskDetail = async (taskId, userId) => {
     isCreator,
     isPlayer,
     canUpload: isPlayer && t.status === 'taken',
+    hasReview, // ⭐ NEW
   };
 };
 

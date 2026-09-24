@@ -1393,3 +1393,132 @@ body {
   transform: scale(0.98);
   box-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
 }
+
+.btn-chat:active {
+  transform: scale(0.98);
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+}
+
+/* ▬▬▬▬▬ ОТЗЫВЫ И РЕЙТИНГ ▬▬▬▬▬ */
+.review-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.review-head {
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.review-head .review-stars { color: var(--warning); }
+.review-task {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.review-comment {
+  font-size: 13px;
+  color: var(--text);
+  font-style: italic;
+  padding: 6px 10px;
+  background: rgba(0, 229, 255, 0.05);
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+  margin: 6px 0;
+}
+.review-date {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.reviews-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 40px 20px;
+}
+
+/* Карточка «Мой рейтинг» */
+#profile-rating-card .card-row-header strong {
+  color: var(--warning) !important;
+}
+
+/* Кнопки отзывов */
+.btn-review-primary {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--warning), var(--accent-secondary));
+  color: var(--bg);
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: transform 0.15s;
+}
+.btn-review-primary:active { transform: scale(0.97); }
+
+/* Звёзды в модалке оценки */
+.rating-picker {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+.rating-star {
+  font-size: 36px;
+  cursor: pointer;
+  filter: grayscale(1);
+  opacity: 0.4;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.rating-star.active {
+  filter: grayscale(0);
+  opacity: 1;
+  transform: scale(1.15);
+  text-shadow: 0 0 16px rgba(255, 187, 0, 0.7);
+}
+.rating-star:active { transform: scale(0.95); }
+
+.rating-comment-input {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 60px;
+  outline: none;
+  margin-bottom: 14px;
+}
+.rating-comment-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.1);
+}
+
+/* Карточка ожидающего отзыва */
+.pending-task {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.pending-task-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.pending-task-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}

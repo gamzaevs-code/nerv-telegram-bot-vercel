@@ -1,8 +1,15 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: лента активности + уведомления (объединено)
+// API: лента + уведомления + отзывы (объединено)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
+const {
+  createReview,
+  getPlayerReviews,
+  getTopRated,
+  canReview,
+  getPendingReviews,
+} = require('../lib/reviews');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
@@ -50,7 +57,7 @@ module.exports = async (req, res) => {
     if (meRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
     const me = meRes.rows[0];
 
-    // ================= ACTIVITY =================
+    // ═══════════ ACTIVITY ═══════════
     if (!action || action === 'activity') {
       const feed = [];
 
@@ -100,11 +107,10 @@ module.exports = async (req, res) => {
       }));
 
       feed.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
       return res.status(200).json({ ok: true, feed: feed.slice(0, 15) });
     }
 
-    // ================= NOTIFICATIONS =================
+    // ═══════════ NOTIFICATIONS ═══════════
     if (action === 'notifications') {
       const r = await query(
         `SELECT id, message, "isRead", "createdAt"
@@ -135,6 +141,53 @@ module.exports = async (req, res) => {
         [me.id]
       );
       return res.status(200).json({ ok: true });
+    }
+
+    // ═══════════ REVIEWS ═══════════
+
+    // Топ-10 по рейтингу (публичный)
+    if (action === 'reviews_top') {
+      const top = await getTopRated(10);
+      return res.status(200).json({ ok: true, top });
+    }
+
+    // Отзывы игрока
+    if (action === 'reviews_player') {
+      const playerId = parseInt(req.body.playerId, 10);
+      if (!playerId) return res.status(400).json({ ok: false, error: 'playerId required' });
+      const reviews = await getPlayerReviews(playerId, 20);
+      return res.status(200).json({ ok: true, reviews });
+    }
+
+    // Задания, ожидающие отзыва у текущего юзера
+    if (action === 'reviews_pending') {
+      const pending = await getPendingReviews(me.id, 10);
+      return res.status(200).json({ ok: true, pending });
+    }
+
+    // Можно ли оставить отзыв
+    if (action === 'reviews_can') {
+      const taskId = parseInt(req.body.taskId, 10);
+      if (!taskId) return res.status(400).json({ ok: false, error: 'taskId required' });
+      const result = await canReview(taskId, me.id);
+      return res.status(200).json({ ok: true, ...result });
+    }
+
+    // Создать отзыв
+    if (action === 'reviews_create') {
+      const { taskId, playerId, rating, comment } = req.body;
+      if (!taskId || !playerId || !rating) {
+        return res.status(400).json({ ok: false, error: 'taskId, playerId, rating required' });
+      }
+      const result = await createReview({
+        taskId: parseInt(taskId, 10),
+        reviewerId: me.id,
+        playerId: parseInt(playerId, 10),
+        rating: parseInt(rating, 10),
+        comment: comment || null,
+      });
+      if (!result.ok) return res.status(400).json(result);
+      return res.status(200).json({ ok: true, review: result.review });
     }
 
     return res.status(400).json({ ok: false, error: 'Неизвестное действие' });

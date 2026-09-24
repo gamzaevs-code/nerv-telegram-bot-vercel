@@ -105,6 +105,7 @@
         <button class="filter active" data-topcat="reputation">⭐ Репутация</button>
         <button class="filter" data-topcat="balance">💰 Баланс</button>
         <button class="filter" data-topcat="completed">✅ Задания</button>
+        <button class="filter" data-topcat="rating">⭐ Рейтинг</button>
       </div>
 
       <div id="top-list" class="top-list">
@@ -202,6 +203,20 @@
         </div>
         <div class="ach-preview" id="ach-preview"></div>
         <div class="card-arrow">Смотреть все →</div>
+      </div>
+
+      <!-- РЕЙТИНГ И ОТЗЫВЫ -->
+      <div class="card clickable" id="profile-rating-card">
+        <div class="card-row-header">
+          <span>⭐ Мой рейтинг</span>
+          <strong id="profile-rating-value">— / 5</strong>
+        </div>
+        <div class="card-arrow" id="profile-rating-count">Пока нет отзывов</div>
+      </div>
+
+      <div class="card">
+        <button class="btn-change-role" id="btn-open-reviews">⭐ Мои отзывы</button>
+        <button class="btn-change-role" id="btn-open-pending" style="margin-top:8px;">📝 Оставить отзыв</button>
       </div>
 
       <!-- Рефералы -->
@@ -315,6 +330,18 @@
       </div>
 
       <div class="modal-actions" id="modal-actions"></div>
+    </div>
+  </div>
+
+  <!-- МОДАЛКА: ОТЗЫВЫ (динамическая) -->
+  <div id="reviews-modal" class="modal hidden">
+    <div class="modal-backdrop" id="reviews-modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-id" id="reviews-modal-title">⭐ ОТЗЫВЫ</span>
+        <button class="modal-close" id="reviews-modal-close">✕</button>
+      </div>
+      <div id="reviews-modal-body"></div>
     </div>
   </div>
 

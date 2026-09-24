@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: расширенный профиль (метрики, спарклайн, достижения)
+// API: расширенный профиль (метрики, спарклайн, достижения, рейтинг)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -40,7 +40,8 @@ module.exports = async (req, res) => {
       `SELECT id, name, "displayName", balance, reputation, role,
               level, experience, "loginStreak", "isModerator",
               "referralCode", "createdAt", "roleChosen",
-              "lastDailyBonusAt", avatar, bio
+              "lastDailyBonusAt", avatar, bio,
+              "ratingAvg", "ratingCount"
        FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
@@ -223,6 +224,9 @@ module.exports = async (req, res) => {
         sparkline: { data: sparkData, max: sparkMax },
         streakDays,
         nextBonusHours: Math.round(nextBonusHours * 10) / 10,
+        // ⭐ РЕЙТИНГ И ОТЗЫВЫ
+        ratingAvg: Number(user.ratingAvg) || 0,
+        ratingCount: user.ratingCount || 0,
         metrics: {
           earned: earnRes.rows[0].s,
           spent: Math.abs(spentRes.rows[0].s),
