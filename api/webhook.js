@@ -134,6 +134,56 @@ module.exports = async (req, res) => {
       }
     }
 
+    // ========== ОТВЕТ В ЧАТ ЗАДАНИЯ (/reply_task <taskId> <текст>) ==========
+    if (text.startsWith('/reply_task')) {
+      if (!user) { await send('❌ *Сначала привяжи аккаунт:* /link your@email.com'); return res.status(200).send('OK'); }
+
+      const parts = text.split(' ');
+      if (parts.length < 3) {
+        await send('⚠️ *Формат:* `/reply\\_task <taskId> <текст>`', 'Markdown');
+        return res.status(200).send('OK');
+      }
+
+      const taskId = parseInt(parts[1]);
+      const msgText = parts.slice(2).join(' ').trim();
+
+      if (isNaN(taskId) || !msgText) {
+        await send('❌ *Неверный taskId или пустое сообщение*');
+        return res.status(200).send('OK');
+      }
+
+      try {
+        const { sendChatMessage, getTaskParties } = require('../lib/chat');
+        const sent = await sendChatMessage(taskId, user.id, msgText);
+
+        if (!sent.ok) {
+          await send(`❌ *${sent.error}*`);
+          return res.status(200).send('OK');
+        }
+
+        await send('✅ *Сообщение отправлено*');
+
+        // Push получателю
+        const parties = await getTaskParties(taskId);
+        const toChatId = parties.creatorId === user.id ? parties.player_chat : parties.creator_chat;
+        if (toChatId) {
+          const myName = user.displayName || user.name;
+          const pushText =
+            `💬 *Новое сообщение по заданию*\n\n` +
+            `📌 ${parties.title}\n` +
+            `👤 От: *${myName}*\n\n` +
+            `_${msgText.slice(0, 300)}${msgText.length > 300 ? '…' : ''}_\n\n` +
+            `↩️ Ответить: /reply\\_task ${taskId} <текст>`;
+          try { await sendMessage(toChatId, pushText, 'Markdown'); }
+          catch (err) { console.error('push /reply_task:', err); }
+        }
+      } catch (e) {
+        console.error('/reply_task:', e);
+        await send('❌ *Ошибка отправки*');
+      }
+      return res.status(200).send('OK');
+    }
+
     // ========== ПОШАГОВЫЕ СОСТОЯНИЯ ==========
     if (text && userState[chatId] && userState[chatId].step) {
       const state = userState[chatId];

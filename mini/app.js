@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// NERV MINI APP — логика фронтенда
+// NERV MINI APP — логика фронтенда (v3: чат по заданию)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 
 const tg = window.Telegram?.WebApp;
@@ -9,6 +9,8 @@ let currentFilter = 'all';
 let currentTaskId = null;
 let currentTopCategory = 'reputation';
 let unreadCount = 0;
+let chatTaskId = null;
+let chatPollTimer = null;
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
 const init = async () => {
@@ -287,6 +289,7 @@ const renderTaskModal = (t, userRole) => {
   const canTake = t.status === 'open' && userRole === 'player' && !t.playerId;
   const isMyTask = t.isPlayer;
   const canUpload = t.canUpload;
+  const canChat = t.playerId && (t.isPlayer || t.isCreator);
 
   if (canTake) buttons.push(`<button class="btn-primary" data-action="take">⚡ ВЗЯТЬ ЗАДАНИЕ</button>`);
   if (canUpload) buttons.push(`<button class="btn-primary" data-action="upload">📹 ЗАГРУЗИТЬ ВИДЕО</button>`);
@@ -302,6 +305,11 @@ const renderTaskModal = (t, userRole) => {
       buttons.push(`<button class="btn-approve" data-action="vote_approve">✅ ЗА</button>`);
       buttons.push(`<button class="btn-reject" data-action="vote_reject">❌ ПРОТИВ</button>`);
     }
+  }
+
+  // 💬 ЧАТ
+  if (canChat) {
+    buttons.push(`<button class="btn-chat" data-action="chat">💬 Написать ${t.isPlayer ? 'создателю' : 'игроку'}</button>`);
   }
 
   if (buttons.length === 0) buttons.push(`<button class="btn-secondary" disabled>Действий нет</button>`);
@@ -321,6 +329,13 @@ const handleTaskAction = async (action) => {
     if (tg?.openTelegramLink) tg.openTelegramLink(link);
     else window.open(link, '_blank');
     closeTaskModal();
+    return;
+  }
+
+  if (action === 'chat') {
+    tg?.HapticFeedback?.impactOccurred?.('light');
+    closeTaskModal();
+    openChatModal(currentTaskId);
     return;
   }
 
@@ -350,14 +365,124 @@ const closeTaskModal = () => {
   currentTaskId = null;
 };
 
-// ========== ЛЕНТА ==========
+// ========== ЧАТ ПО ЗАДАНИЮ ==========
+const openChatModal = async (taskId) => {
+  chatTaskId = taskId;
+
+  let modal = document.getElementById('chat-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'chat-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="chat-modal-backdrop"></div>
+      <div class="modal-content chat-modal-content">
+        <div class="modal-header">
+          <span class="modal-id">💬 ЧАТ ПО ЗАДАНИЮ #${taskId}</span>
+          <button class="modal-close" id="chat-modal-close">✕</button>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="modal-loading">Загрузка...</div>
+        </div>
+        <div class="chat-input-wrap">
+          <input type="text" id="chat-input" class="chat-input" placeholder="Сообщение..." maxlength="2000" autocomplete="off">
+          <button class="chat-send" id="chat-send">➤</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('chat-modal-backdrop').addEventListener('click', closeChatModal);
+    document.getElementById('chat-modal-close').addEventListener('click', closeChatModal);
+    document.getElementById('chat-send').addEventListener('click', sendChatMessage);
+    document.getElementById('chat-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
+    });
+  }
+
+  modal.classList.remove('hidden');
+  await loadChatHistory(taskId);
+
+  // Поллинг каждые 5 сек
+  if (chatPollTimer) clearInterval(chatPollTimer);
+  chatPollTimer = setInterval(() => {
+    if (chatTaskId) loadChatHistory(chatTaskId, true);
+  }, 5000);
+};
+
+const closeChatModal = () => {
+  const m = document.getElementById('chat-modal');
+  if (m) m.classList.add('hidden');
+  chatTaskId = null;
+  if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
+};
+
+const loadChatHistory = async (taskId, silent = false) => {
+  const msgEl = document.getElementById('chat-messages');
+  if (!msgEl) return;
+  if (!silent) msgEl.innerHTML = '<div class="modal-loading">Загрузка...</div>';
+
+  try {
+    const res = await fetch('/api/app-chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'history', taskId }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    renderChatMessages(data.messages);
+  } catch (e) {
+    if (!silent) msgEl.innerHTML = `<div class="notif-empty">❌ ${escapeHtml(e.message)}</div>`;
+  }
+};
+
+const renderChatMessages = (messages) => {
+  const msgEl = document.getElementById('chat-messages');
+  if (!msgEl) return;
+  if (!messages || messages.length === 0) {
+    msgEl.innerHTML = '<div class="chat-empty">💬 Начни диалог первым</div>';
+    return;
+  }
+  const wasAtBottom = msgEl.scrollTop + msgEl.clientHeight >= msgEl.scrollHeight - 30;
+  msgEl.innerHTML = messages.map(m => `
+    <div class="chat-msg ${m.isMine ? 'mine' : 'theirs'}">
+      ${!m.isMine ? `<div class="chat-msg-name">${escapeHtml(m.fromName)}</div>` : ''}
+      <div class="chat-msg-text">${escapeHtml(m.message)}</div>
+      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</div>
+    </div>
+  `).join('');
+  if (wasAtBottom) msgEl.scrollTop = msgEl.scrollHeight;
+};
+
+const sendChatMessage = async () => {
+  const input = document.getElementById('chat-input');
+  if (!input || !chatTaskId) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  tg?.HapticFeedback?.impactOccurred?.('light');
+
+  try {
+    const res = await fetch('/api/app-chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'send', taskId: chatTaskId, message: text }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    await loadChatHistory(chatTaskId, true);
+  } catch (e) {
+    tg?.HapticFeedback?.notificationOccurred?.('error');
+    tg?.showAlert?.(`❌ ${e.message}`);
+  }
+};
+
+// ========== ЛЕНТА (app-feed) ==========
 const loadActivity = async () => {
   const listEl = document.getElementById('activity-list');
   if (!listEl) return;
   try {
-    const res = await fetch('/api/app-activity', {
+    const res = await fetch('/api/app-feed', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData }),
+      body: JSON.stringify({ initData, action: 'activity' }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
@@ -446,12 +571,12 @@ const renderTop = (top, myRank, myScore, category) => {
   }
 };
 
-// ========== УВЕДОМЛЕНИЯ ==========
+// ========== УВЕДОМЛЕНИЯ (app-feed) ==========
 const loadNotifications = async () => {
   try {
-    const res = await fetch('/api/app-notifications', {
+    const res = await fetch('/api/app-feed', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData }),
+      body: JSON.stringify({ initData, action: 'notifications' }),
     });
     const data = await res.json();
     if (!data.ok) return;
@@ -474,9 +599,9 @@ const updateNotifBadge = () => {
 const openNotifModal = async () => {
   let notifications = [];
   try {
-    const res = await fetch('/api/app-notifications', {
+    const res = await fetch('/api/app-feed', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData }),
+      body: JSON.stringify({ initData, action: 'notifications' }),
     });
     const data = await res.json();
     if (data.ok) notifications = data.notifications;
@@ -531,7 +656,7 @@ const closeNotifModal = () => {
 
 const markAllRead = async () => {
   try {
-    await fetch('/api/app-notifications', {
+    await fetch('/api/app-feed', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'mark_all_read' }),
     });
@@ -540,7 +665,7 @@ const markAllRead = async () => {
   } catch (e) { console.error('markAllRead:', e); }
 };
 
-// ========== МЕТРИКИ (кликабельные) — /api/app-data ==========
+// ========== МЕТРИКИ (app-data) ==========
 const openMetricModal = async (metric) => {
   let data = null;
   try {
@@ -635,7 +760,7 @@ const closeMetricModal = () => {
   if (m) m.classList.add('hidden');
 };
 
-// ========== ОНЛАЙН / ИЗБРАННЫЕ — /api/app-data ==========
+// ========== ОНЛАЙН / ИЗБРАННЫЕ (app-data) ==========
 const openOnlineModal = async () => {
   let online = [];
   try {
@@ -927,7 +1052,7 @@ const escapeHtml = (str) => {
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 };
 const renderUser = (user) => {
-  // Убрали user-tag из шапки, но функция остаётся для совместимости
+  // Функция-заглушка для совместимости
 };
 const showApp = () => {
   document.getElementById('loading').classList.add('hidden');
