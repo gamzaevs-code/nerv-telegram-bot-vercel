@@ -19,6 +19,7 @@
     <button onclick="location.reload()">Повторить</button>
   </div>
 
+  <!-- ЭКРАН ВЫБОРА РОЛИ -->
   <div id="role-select" class="role-select hidden">
     <div class="role-select-content">
       <div class="role-select-logo">⚡ NERV</div>
@@ -71,59 +72,16 @@
       </div>
     </header>
 
-    <nav class="nav-tabs nav-tabs-4">
-      <button class="tab active" data-tab="tasks">📋</button>
+    <nav class="nav-tabs nav-tabs-5" id="main-nav">
+      <button class="tab active" data-tab="profile">👤</button>
+      <button class="tab" data-tab="tasks">📋</button>
       <button class="tab" data-tab="top">🏆</button>
-      <button class="tab" data-tab="profile">👤</button>
       <button class="tab" data-tab="create">➕</button>
+      <button class="tab hidden" data-tab="admin" id="admin-tab">⚙️</button>
     </nav>
 
-    <!-- ЗАДАНИЯ -->
-    <section id="tab-tasks" class="tab-content active">
-      <div class="activity-feed" id="activity-feed">
-        <div class="activity-title">🔥 Сейчас происходит</div>
-        <div class="activity-list" id="activity-list">
-          <p class="activity-loading">Загрузка...</p>
-        </div>
-      </div>
-
-      <div class="filters" id="task-filters">
-        <button class="filter active" data-filter="all">Все</button>
-        <button class="filter" data-filter="open">🟢 Открытые</button>
-        <button class="filter" data-filter="voting">🗳 Голосование</button>
-        <button class="filter" data-filter="mine">📝 Мои</button>
-      </div>
-
-      <div id="tasks-list" class="tasks-list">
-        <p class="placeholder">Загрузка заданий...</p>
-      </div>
-    </section>
-
-    <!-- ТОП -->
-    <section id="tab-top" class="tab-content">
-      <div class="filters top-filters">
-        <button class="filter active" data-topcat="reputation">⭐ Репутация</button>
-        <button class="filter" data-topcat="balance">💰 Баланс</button>
-        <button class="filter" data-topcat="completed">✅ Задания</button>
-        <button class="filter" data-topcat="rating">⭐ Рейтинг</button>
-      </div>
-
-      <div id="top-list" class="top-list">
-        <p class="placeholder">Загрузка рейтинга...</p>
-      </div>
-
-      <div id="top-me" class="top-me hidden">
-        <div class="top-me-label">🎯 Твоя позиция</div>
-        <div class="top-me-row">
-          <span class="top-me-rank" id="top-me-rank">#—</span>
-          <span class="top-me-name" id="top-me-name">—</span>
-          <span class="top-me-score" id="top-me-score">—</span>
-        </div>
-      </div>
-    </section>
-
     <!-- ПРОФИЛЬ -->
-    <section id="tab-profile" class="tab-content">
+    <section id="tab-profile" class="tab-content active">
       <div class="profile-header">
         <div class="avatar-wrap">
           <div class="avatar" id="profile-avatar">?</div>
@@ -243,6 +201,50 @@
       </div>
     </section>
 
+    <!-- ЗАДАНИЯ -->
+    <section id="tab-tasks" class="tab-content">
+      <div class="filters" id="task-filters">
+        <button class="filter active" data-filter="all">Все</button>
+        <button class="filter" data-filter="open">🟢 Открытые</button>
+        <button class="filter" data-filter="voting">🗳 Голосование</button>
+        <button class="filter" data-filter="mine">📝 Мои</button>
+      </div>
+
+      <div id="tasks-list" class="tasks-list">
+        <p class="placeholder">Загрузка заданий...</p>
+      </div>
+
+      <div class="activity-feed" id="activity-feed" style="margin-top:16px;">
+        <div class="activity-title">🔥 Сейчас происходит</div>
+        <div class="activity-list" id="activity-list">
+          <p class="activity-loading">Загрузка...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ТОП -->
+    <section id="tab-top" class="tab-content">
+      <div class="filters top-filters">
+        <button class="filter active" data-topcat="reputation">⭐ Репутация</button>
+        <button class="filter" data-topcat="balance">💰 Баланс</button>
+        <button class="filter" data-topcat="completed">✅ Задания</button>
+        <button class="filter" data-topcat="rating">⭐ Рейтинг</button>
+      </div>
+
+      <div id="top-list" class="top-list">
+        <p class="placeholder">Загрузка рейтинга...</p>
+      </div>
+
+      <div id="top-me" class="top-me hidden">
+        <div class="top-me-label">🎯 Твоя позиция</div>
+        <div class="top-me-row">
+          <span class="top-me-rank" id="top-me-rank">#—</span>
+          <span class="top-me-name" id="top-me-name">—</span>
+          <span class="top-me-score" id="top-me-score">—</span>
+        </div>
+      </div>
+    </section>
+
     <!-- СОЗДАТЬ -->
     <section id="tab-create" class="tab-content">
       <div class="create-header">
@@ -274,6 +276,19 @@
       </form>
 
       <div id="create-status" class="create-status hidden"></div>
+    </section>
+
+    <!-- АДМИН-ПАНЕЛЬ -->
+    <section id="tab-admin" class="tab-content">
+      <div class="admin-period-filters">
+        <button class="filter" data-admperiod="day">📅 День</button>
+        <button class="filter active" data-admperiod="week">📆 Неделя</button>
+        <button class="filter" data-admperiod="month">🗓 Месяц</button>
+        <button class="filter" data-admperiod="all">♾ Всё</button>
+      </div>
+      <div id="admin-stats-container">
+        <p class="placeholder">Загрузка...</p>
+      </div>
     </section>
   </main>
 

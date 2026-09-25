@@ -1772,3 +1772,13 @@ body {
   object-fit: cover;
   display: block;
 }
+
+/* Лента внизу — уменьшаем акцент */
+#tab-tasks .activity-feed {
+  margin-top: 16px;
+  margin-bottom: 0;
+  opacity: 0.85;
+}
+#tab-tasks .activity-feed .activity-list {
+  max-height: 140px;
+}
