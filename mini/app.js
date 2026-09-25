@@ -1157,20 +1157,37 @@ const openMetricModal = async (metric) => {
   }
 
   if (metric === 'achievements' && data.achievements) {
-    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
-        Открыто: ${data.achievements.filter(a => a.isUnlocked).length} из ${data.achievements.length}
-      </p>` +
-      data.achievements.map(a => `
-        <div class="user-row" style="cursor:default;">
-          <div class="user-avatar-sm" style="font-size:20px;${a.isUnlocked ? '' : 'filter:grayscale(1);opacity:0.4;'}">${a.icon}</div>
-          <div class="user-info">
-            <div class="user-name">${escapeHtml(a.name)}</div>
-            <div class="user-sub">${escapeHtml(a.description || '')} · 🎁 ${a.reward} ₽</div>
+    // ⭐ Используем существующую рабочую модалку отзывов
+    closeMetricModal();
+
+    const reviewsModal = document.getElementById('reviews-modal');
+    document.getElementById('reviews-modal-title').textContent = '🎖 ДОСТИЖЕНИЯ';
+
+    const body = document.getElementById('reviews-modal-body');
+    const unlocked = data.achievements.filter(a => a.isUnlocked).length;
+    const total = data.achievements.length;
+
+    body.innerHTML = `
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;text-align:center;">
+        Открыто: <b>${unlocked}</b> из <b>${total}</b>
+      </p>
+      ${data.achievements.map(a => `
+        <div class="user-review-item" style="${a.isUnlocked ? '' : 'opacity:0.5;'}">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="font-size:28px;${a.isUnlocked ? '' : 'filter:grayscale(1);'}">${a.icon || '🏅'}</div>
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:14px;">${escapeHtml(a.name)}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(a.description || '')}</div>
+              <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${a.reward} ₽</div>
+            </div>
+            ${a.isUnlocked ? '<span style="color:var(--success);font-size:20px;">✓</span>' : '<span style="color:var(--text-muted);font-size:18px;">🔒</span>'}
           </div>
-          ${a.isUnlocked ? '<span style="color:var(--success);font-size:20px;">✓</span>' : '<span style="color:var(--text-muted);font-size:18px;">🔒</span>'}
         </div>
-      `).join('');
+      `).join('')}
+    `;
+
+    reviewsModal.classList.remove('hidden');
+    return;
   }
 
   modal.classList.remove('hidden');
