@@ -1,6 +1,6 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 // API: объединённый эндпоинт
-// activity + notifications + reviews + online + favorites + metrics + user_profile
+// activity + notifications + reviews + online + favorites + metrics + user_profile + search
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -48,6 +48,28 @@ const isOnline = (lastSeen) => {
 };
 
 module.exports = async (req, res) => {
+  // ⭐ GET: редирект на аватарку (для <img src="...">)
+  if (req.method === 'GET' && req.query && req.query.action === 'avatar') {
+    try {
+      const userId = parseInt(req.query.userId, 10);
+      if (!userId) return res.status(400).send('No userId');
+      const r = await query(`SELECT avatar FROM "User" WHERE id = $1`, [userId]);
+      const fileId = r.rows[0]?.avatar;
+      if (!fileId) return res.status(404).send('No avatar');
+
+      const token = process.env.BOT_TOKEN;
+      const resp = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+      const j = await resp.json();
+      if (!j.ok) return res.status(404).send('File not found');
+
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.redirect(302, `https://api.telegram.org/file/bot${token}/${j.result.file_path}`);
+    } catch (e) {
+      console.error('avatar redirect:', e);
+      return res.status(500).send('Error');
+    }
+  }
+
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
   try {
@@ -190,6 +212,49 @@ module.exports = async (req, res) => {
       });
       if (!result.ok) return res.status(400).json(result);
       return res.status(200).json({ ok: true, review: result.review });
+    }
+
+    // ═══════════ SEARCH USERS ⭐ NEW ═══════════
+    if (action === 'search_users') {
+      const q = String(req.body.query || '').trim();
+      if (q.length < 2) {
+        return res.status(400).json({ ok: false, error: 'Минимум 2 символа' });
+      }
+      const qLower = q.toLowerCase();
+
+      const r = await query(
+        `SELECT u.id, COALESCE(u."displayName", u.name) AS name,
+                u.level, u.role, u."ratingAvg", u."ratingCount",
+                u.reputation, pres."lastSeen",
+                (SELECT COUNT(*)::int FROM "UserAchievement" WHERE "userId"=u.id) AS achievements
+         FROM "User" u
+         LEFT JOIN "UserPresence" pres ON pres."userId" = u.id
+         WHERE u."isBanned" = false
+           AND LOWER(COALESCE(u."displayName", u.name)) LIKE $1
+         ORDER BY 
+           CASE WHEN LOWER(COALESCE(u."displayName", u.name)) = $2 THEN 0 ELSE 1 END,
+           u."ratingAvg" DESC NULLS LAST,
+           u.reputation DESC
+         LIMIT 10`,
+        [`%${qLower}%`, qLower]
+      );
+
+      return res.status(200).json({
+        ok: true,
+        query: q,
+        users: r.rows.map(u => ({
+          id: u.id,
+          name: u.name,
+          level: u.level || 1,
+          role: u.role,
+          ratingAvg: Number(u.ratingAvg) || 0,
+          ratingCount: u.ratingCount || 0,
+          reputation: u.reputation,
+          achievements: u.achievements,
+          isOnline: isOnline(u.lastSeen),
+          isMe: u.id === myId,
+        })),
+      });
     }
 
     // ═══════════ PUBLIC PROFILE ═══════════

@@ -19,7 +19,6 @@
     <button onclick="location.reload()">Повторить</button>
   </div>
 
-  <!-- ЭКРАН ВЫБОРА РОЛИ -->
   <div id="role-select" class="role-select hidden">
     <div class="role-select-content">
       <div class="role-select-logo">⚡ NERV</div>
@@ -59,6 +58,7 @@
       <div class="header-line">
         <span class="logo">⚡ NERV</span>
         <div class="header-right">
+          <button class="btn-search" id="btn-search" title="Поиск игроков">🔍</button>
           <span class="online-pill" id="online-pill">
             <span class="online-dot"></span>
             <span id="online-count">0</span>
@@ -137,7 +137,6 @@
         </div>
       </div>
 
-      <!-- Уровень -->
       <div class="card">
         <div class="level-row">
           <div class="level-label">
@@ -150,13 +149,11 @@
         </div>
       </div>
 
-      <!-- Спарклайн -->
       <div class="card sparkline-card" id="sparkline-card">
         <div class="sparkline-label">📊 Активность за 7 дней</div>
         <div class="sparkline" id="profile-sparkline"></div>
       </div>
 
-      <!-- Метрики (кликабельные) -->
       <div class="stats-grid">
         <div class="stat-card clickable" data-metric="balance">
           <div class="stat-icon">💰</div>
@@ -180,13 +177,11 @@
         </div>
       </div>
 
-      <!-- Календарь streak -->
       <div class="card">
         <div class="card-label">🔥 Активность за неделю</div>
         <div class="streak-calendar" id="streak-calendar"></div>
       </div>
 
-      <!-- Таймер бонуса -->
       <div class="card bonus-timer-card clickable" id="bonus-timer-card">
         <div class="bonus-timer">
           <span class="bonus-icon">🎁</span>
@@ -195,7 +190,6 @@
         </div>
       </div>
 
-      <!-- Достижения (превью) -->
       <div class="card clickable" data-metric="achievements">
         <div class="card-row-header">
           <span>🎖 Достижения</span>
@@ -205,7 +199,6 @@
         <div class="card-arrow">Смотреть все →</div>
       </div>
 
-      <!-- РЕЙТИНГ И ОТЗЫВЫ -->
       <div class="card clickable" id="profile-rating-card">
         <div class="card-row-header">
           <span>⭐ Мой рейтинг</span>
@@ -219,19 +212,16 @@
         <button class="btn-change-role" id="btn-open-pending" style="margin-top:8px;">📝 Оставить отзыв</button>
       </div>
 
-      <!-- 💰 ПОПОЛНЕНИЕ БАЛАНСА -->
       <div class="card">
         <button class="btn-topup" id="btn-topup">💰 Пополнить баланс</button>
       </div>
 
-      <!-- Рефералы -->
       <div class="card referral-card">
         <div class="referral-label">🔗 Твой реферальный код</div>
         <div class="referral-code" id="profile-ref-code">—</div>
         <button class="btn-share" id="btn-share-ref">📤 Поделиться</button>
       </div>
 
-      <!-- Избранные -->
       <div class="card clickable" id="favorites-card">
         <div class="card-row-header">
           <span>⭐ Избранные игроки</span>
@@ -240,7 +230,6 @@
         <div class="card-arrow">Смотреть →</div>
       </div>
 
-      <!-- Онлайн -->
       <div class="card clickable" id="online-card">
         <div class="card-row-header">
           <span>🟢 Сейчас онлайн</span>
@@ -249,7 +238,6 @@
         <div class="card-arrow">Смотреть →</div>
       </div>
 
-      <!-- Смена роли -->
       <div class="card">
         <button class="btn-change-role" id="btn-change-role">🎭 Сменить роль</button>
       </div>
