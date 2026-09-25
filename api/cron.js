@@ -6,19 +6,17 @@ const { sendDailySummaryToAdmin } = require('../lib/dailySummary');
 const { awardWeeklyPlayer } = require('../lib/weeklyAward');
 
 module.exports = async (req, res) => {
-  const auth = req.headers['authorization'] || '';
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }  const url0 = new URL(req.url, 'http://x');
-  const secretFromQuery = url0.searchParams.get('secret');
-  const auth = req.headers['authorization'] || '';
-  const validHeader = auth === `Bearer ${process.env.CRON_SECRET}`;
+  // Проверка секрета — header ИЛИ query (?secret=)
+  const url = new URL(req.url, 'http://x');
+  const secretFromQuery = url.searchParams.get('secret');
+  const authHeader = req.headers['authorization'] || '';
+  const validHeader = authHeader === `Bearer ${process.env.CRON_SECRET}`;
   const validQuery = secretFromQuery && secretFromQuery === process.env.CRON_SECRET;
+
   if (!validHeader && !validQuery) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
-  const url = new URL(req.url, 'http://x');
   const task = url.searchParams.get('task');
 
   try {
@@ -40,7 +38,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, task: 'weekly_award', result });
     }
 
-    // Без параметра — запускаем всё (на всякий случай)
+    // Без параметра — запускаем всё
     const t = await checkAndAwardTournament(new Date());
     const s = await sendDailySummaryToAdmin();
     const w = await awardWeeklyPlayer();
