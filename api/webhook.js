@@ -88,6 +88,81 @@ module.exports = async (req, res) => {
         }
         return res.status(200).send('OK');
       }
+            // ═══ Обработка вывода ═══
+      if (data.startsWith('wd_approve_') || data.startsWith('wd_reject_')) {
+        if (!isAdmin) {
+          await edit('🚫 *Только для админов*', 'Markdown', { inline_keyboard: [] });
+          return res.status(200).send('OK');
+        }
+        const isApprove = data.startsWith('wd_approve_');
+        const reqId = parseInt(data.replace(/^wd_(approve|reject)_/, ''), 10);
+        if (!reqId) { await edit('❌', 'Markdown', { inline_keyboard: [] }); return res.status(200).send('OK'); }
+
+        try {
+          const r = await query(
+            `SELECT id, "userId", amount, status FROM "WithdrawalRequest" WHERE id = $1`,
+            [reqId]
+          );
+          if (r.rows.length === 0) {
+            await edit('❌ *Запрос не найден*', 'Markdown', { inline_keyboard: [] });
+            return res.status(200).send('OK');
+          }
+          const w = r.rows[0];
+          if (w.status !== 'pending') {
+            await edit('⚠️ *Уже обработан*', 'Markdown', { inline_keyboard: [] });
+            return res.status(200).send('OK');
+          }
+
+          const { notifyUser } = require('../lib/notify');
+
+          if (isApprove) {
+            await query(
+              `UPDATE "WithdrawalRequest" SET status = 'paid', "processedAt" = NOW() WHERE id = $1`,
+              [reqId]
+            );
+            await query(
+              `UPDATE "Transaction" SET status = 'completed', reason = $1 WHERE "userId" = $2 AND type = 'withdraw_hold' AND amount = $3 AND status = 'pending'`,
+              [`Вывод ${w.amount} ₽ — выплачено`, w.userId, -w.amount]
+            );
+            await notifyUser(w.userId, {
+              message: `✅ Вывод ${w.amount} ₽ выполнен`,
+              pushText: `✅ *Вывод выполнен!*\n\nСумма: *${w.amount} ₽*\nДеньги придут на карту в течение 1-3 рабочих дней.`,
+              type: 'system',
+              icon: '💸',
+              force: true,
+            });
+            await edit(`✅ *Выплачено* #${reqId} → ${w.amount} ₽`, 'Markdown', { inline_keyboard: [] });
+          } else {
+            // Отклонение — возврат баланса
+            await query(
+              `UPDATE "WithdrawalRequest" SET status = 'rejected', "processedAt" = NOW() WHERE id = $1`,
+              [reqId]
+            );
+            await query(`UPDATE "User" SET balance = balance + $1 WHERE id = $2`, [w.amount, w.userId]);
+            await query(
+              `UPDATE "Transaction" SET status = 'canceled', reason = $1 WHERE "userId" = $2 AND type = 'withdraw_hold' AND amount = $3 AND status = 'pending'`,
+              [`Вывод ${w.amount} ₽ — отклонено, возврат`, w.userId, -w.amount]
+            );
+            await query(
+              `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
+               VALUES ($1,'withdraw_refund',$2,'completed',$3,NOW())`,
+              [w.userId, w.amount, `Возврат за отклонённый вывод #${reqId}`]
+            );
+            await notifyUser(w.userId, {
+              message: `❌ Вывод ${w.amount} ₽ отклонён. Баланс возвращён.`,
+              pushText: `❌ *Вывод отклонён*\n\nСумма: *${w.amount} ₽* возвращена на баланс.`,
+              type: 'system',
+              icon: '❌',
+              force: true,
+            });
+            await edit(`❌ *Отклонено* #${reqId} → возврат ${w.amount} ₽`, 'Markdown', { inline_keyboard: [] });
+          }
+        } catch (e) {
+          console.error('wd_ callback:', e);
+          await edit('❌ *Ошибка обработки*', 'Markdown', { inline_keyboard: [] });
+        }
+        return res.status(200).send('OK');
+      }
 
       // ═══════════ /stats — переключение периода ═══════════
       if (data.startsWith('stats_view_')) {
@@ -303,6 +378,49 @@ module.exports = async (req, res) => {
       } catch (e) {
         console.error('/find:', e);
         await send('❌ *Ошибка поиска*');
+      }
+      return res.status(200).send('OK');
+    }
+
+        // ========== /withdrawals (АДМИН) ==========
+    if (text.startsWith('/withdrawals')) {
+      if (!user) { await send('❌'); return res.status(200).send('OK'); }
+      if (!isAdmin) { await send('🚫 *Только для админов*'); return res.status(200).send('OK'); }
+
+      try {
+        const r = await query(
+          `SELECT w.id, w.amount, w.card, w.status, w."createdAt",
+                  COALESCE(u."displayName", u.name) AS uname, u.id AS uid
+           FROM "WithdrawalRequest" w
+           JOIN "User" u ON u.id = w."userId"
+           WHERE w.status = 'pending'
+           ORDER BY w."createdAt" ASC
+           LIMIT 20`
+        );
+
+        if (r.rows.length === 0) {
+          await send('✅ *Нет активных запросов на вывод*');
+          return res.status(200).send('OK');
+        }
+
+        let msg = `💸 *Запросы на вывод:* ${r.rows.length}\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n`;
+        const kb = [];
+        for (const w of r.rows) {
+          const dt = new Date(w.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+          msg += `#${w.id} · *${w.amount} ₽*\n`;
+          msg += `👤 @${w.uname}\n`;
+          msg += `💳 \`${w.card}\`\n`;
+          msg += `🕒 ${dt}\n\n`;
+
+          kb.push([
+            { text: `✅ Выплачено #${w.id}`, callback_data: `wd_approve_${w.id}` },
+            { text: `❌ Отклонить #${w.id}`, callback_data: `wd_reject_${w.id}` },
+          ]);
+        }
+        await send(msg, 'Markdown', { inline_keyboard: kb });
+      } catch (e) {
+        console.error('/withdrawals:', e);
+        await send('❌ *Ошибка*');
       }
       return res.status(200).send('OK');
     }
