@@ -165,13 +165,17 @@ const renderStreakCalendar = (days) => {
 
 const renderBonusTimer = (hours) => {
   const el = document.getElementById('bonus-timer');
+  const card = document.getElementById('bonus-timer-card');
   if (hours <= 0) {
-    el.textContent = 'готово!';
+    el.textContent = 'можно забрать!';
     el.style.color = 'var(--success)';
+    if (card) card.style.borderColor = 'var(--success)';
   } else {
     const h = Math.floor(hours);
     const m = Math.round((hours - h) * 60);
     el.textContent = h > 0 ? `${h} ч ${m} мин` : `${m} мин`;
+    el.style.color = '';
+    if (card) card.style.borderColor = '';
   }
 };
 
@@ -1782,6 +1786,13 @@ const showError = (msg) => {
 
 // ========== СОБЫТИЯ ==========
 document.addEventListener('click', (e) => {
+  if (e.target.closest('#bonus-timer-card')) {
+    tg?.HapticFeedback?.impactOccurred?.('light');
+    const link = 'https://t.me/nerv_05bot?start=bonus';
+    if (tg?.openTelegramLink) tg.openTelegramLink(link);
+    else window.open(link, '_blank');
+    return;
+  }
   if (e.target.closest('#btn-search')) { openSearchModal(); return; }
   if (e.target.closest('#btn-notif')) { tg?.HapticFeedback?.impactOccurred?.('light'); openNotifModal(); return; }
 
