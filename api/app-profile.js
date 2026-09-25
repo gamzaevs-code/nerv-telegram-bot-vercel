@@ -123,13 +123,21 @@ module.exports = async (req, res) => {
       [user.id]
     );
 
-    // Спарклайн
+    // Спарклайн активности (7 дней) — все действия
     const sparkRes = await query(
-      `SELECT DATE("createdAt") AS d, COUNT(*)::int AS c
-       FROM "Transaction"
-       WHERE "userId"=$1 AND "createdAt" >= NOW() - INTERVAL '7 days'
-       GROUP BY DATE("createdAt")
-       ORDER BY d ASC`,
+      `SELECT DATE(d) AS d, COUNT(*)::int AS c FROM (
+         SELECT "createdAt" AS d FROM "Transaction" WHERE "userId"=$1 AND "createdAt" >= NOW() - INTERVAL '7 days'
+         UNION ALL
+         SELECT "createdAt" AS d FROM "Task" WHERE "creatorId"=$1 AND "createdAt" >= NOW() - INTERVAL '7 days'
+         UNION ALL
+         SELECT "updatedAt" AS d FROM "Task" WHERE "playerId"=$1 AND "updatedAt" >= NOW() - INTERVAL '7 days' AND status='approved'
+         UNION ALL
+         SELECT "createdAt" AS d FROM "Vote" WHERE "voterId"=$1 AND "createdAt" >= NOW() - INTERVAL '7 days'
+         UNION ALL
+         SELECT "unlockedAt" AS d FROM "UserAchievement" WHERE "userId"=$1 AND "unlockedAt" >= NOW() - INTERVAL '7 days'
+       ) AS acts
+       GROUP BY DATE(d)
+       ORDER BY DATE(d) ASC`,
       [user.id]
     );
     const sparkData = [];
