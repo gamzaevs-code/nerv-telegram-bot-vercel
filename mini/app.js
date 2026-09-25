@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// NERV MINI APP — логика фронтенда (v6: никнеймы + кликабельные игроки)
+// NERV MINI APP — логика фронтенда (v7: ЮKassa + никнеймы + аватарки)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 
 const tg = window.Telegram?.WebApp;
@@ -62,6 +62,7 @@ const init = async () => {
     await Promise.all([loadTasks(), loadTop(), loadActivity(), loadNotifications()]);
     showApp();
 
+    checkPendingPayment();
     setInterval(loadNotifications, 60000);
   } catch (e) {
     console.error('init error:', e);
@@ -94,7 +95,12 @@ const loadProfile = async () => {
 };
 
 const renderProfile = (p) => {
-  document.getElementById('profile-avatar').textContent = p.initials || '?';
+  const avatarEl = document.getElementById('profile-avatar');
+  if (p.avatar) {
+    avatarEl.innerHTML = `<img src="/api/app-data?action=avatar&userId=${p.id}" alt="">`;
+  } else {
+    avatarEl.textContent = p.initials || '?';
+  }
   document.getElementById('profile-name').textContent = '@' + (p.displayName || p.name || 'NERV');
 
   const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ' };
@@ -479,10 +485,11 @@ const renderUserProfile = (p) => {
   body.innerHTML = `
     <div class="user-profile-header">
       <div class="user-profile-avatar">
-        ${escapeHtml(p.initials)}
+        ${p.avatar ? `<img src="/api/app-data?action=avatar&userId=${p.id}" alt="">` : escapeHtml(p.initials)}
         ${p.isOnline ? '<span class="user-online-dot"></span>' : ''}
       </div>
       <h2 class="user-profile-name">@${escapeHtml(p.displayName)}</h2>
+      ${p.bio ? `<div class="user-profile-bio">${escapeHtml(p.bio)}</div>` : ''}
       <div class="user-profile-tags">
         <span class="tag tag-role">${roleLabel}</span>
         ${p.isModerator ? '<span class="tag tag-mod">👮 Модератор</span>' : ''}
@@ -708,7 +715,7 @@ const openMyReviews = async () => {
   const body = document.getElementById('reviews-modal-body');
 
   try {
-    const res = await fetch('/api/app-feed', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'reviews_player', playerId: currentUser?.id }),
     });
@@ -741,7 +748,7 @@ const openPendingReviews = async () => {
   const body = document.getElementById('reviews-modal-body');
 
   try {
-    const res = await fetch('/api/app-feed', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'reviews_pending' }),
     });
@@ -804,7 +811,7 @@ window.openRatingModal = (taskId, playerId, taskTitle) => {
     submitBtn.textContent = 'Отправляю...';
 
     try {
-      const res = await fetch('/api/app-feed', {
+      const res = await fetch('/api/app-data', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           initData,
@@ -832,7 +839,7 @@ const loadTopRated = async () => {
   const listEl = document.getElementById('top-list');
   listEl.innerHTML = '<p class="placeholder">Загрузка...</p>';
   try {
-    const res = await fetch('/api/app-feed', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'reviews_top' }),
     });
@@ -879,7 +886,7 @@ const loadActivity = async () => {
   const listEl = document.getElementById('activity-list');
   if (!listEl) return;
   try {
-    const res = await fetch('/api/app-feed', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'activity' }),
     });
@@ -983,7 +990,7 @@ const renderTop = (top, myRank, myScore, category) => {
 // ========== УВЕДОМЛЕНИЯ ==========
 const loadNotifications = async () => {
   try {
-    const res = await fetch('/api/app-feed', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'notifications' }),
     });
@@ -1008,7 +1015,7 @@ const updateNotifBadge = () => {
 const openNotifModal = async () => {
   let notifications = [];
   try {
-    const res = await fetch('/api/app-feed', {
+    const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'notifications' }),
     });
@@ -1065,7 +1072,7 @@ const closeNotifModal = () => {
 
 const markAllRead = async () => {
   try {
-    await fetch('/api/app-feed', {
+    await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'mark_all_read' }),
     });
@@ -1300,6 +1307,162 @@ const closeFavModal = () => {
   if (m) m.classList.add('hidden');
 };
 
+// ========== ПОПОЛНЕНИЕ БАЛАНСА (ЮKassa) ==========
+window.openTopupModal = () => {
+  let modal = document.getElementById('topup-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'topup-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="topup-modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-id">💰 ПОПОЛНЕНИЕ</span>
+          <button class="modal-close" id="topup-modal-close">✕</button>
+        </div>
+        <h2 class="modal-title">Пополнить баланс</h2>
+        <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 100 ₽ • Оплата через ЮKassa</p>
+
+        <div class="topup-presets">
+          ${[100, 300, 500, 1000, 3000].map(v => `
+            <button class="topup-preset" data-amount="${v}">${v} ₽</button>
+          `).join('')}
+        </div>
+
+        <input type="number" id="topup-amount" class="form-input" placeholder="Своя сумма" min="100" max="100000" style="margin:12px 0;">
+
+        <button class="btn-publish" id="topup-go">💳 Перейти к оплате</button>
+        <div id="topup-status" class="create-status hidden"></div>
+
+        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:12px;">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">📜 История пополнений</div>
+          <div id="topup-history"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('topup-modal-backdrop').addEventListener('click', closeTopupModal);
+    document.getElementById('topup-modal-close').addEventListener('click', closeTopupModal);
+
+    modal.querySelectorAll('.topup-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('topup-amount').value = btn.dataset.amount;
+        modal.querySelectorAll('.topup-preset').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    document.getElementById('topup-go').addEventListener('click', createTopupPayment);
+  }
+
+  modal.classList.remove('hidden');
+  loadTopupHistory();
+};
+
+window.closeTopupModal = () => {
+  const m = document.getElementById('topup-modal');
+  if (m) m.classList.add('hidden');
+};
+
+const createTopupPayment = async () => {
+  const amount = parseInt(document.getElementById('topup-amount').value, 10);
+  const statusEl = document.getElementById('topup-status');
+  const btn = document.getElementById('topup-go');
+
+  if (isNaN(amount) || amount < 100) {
+    statusEl.textContent = '❌ Минимум 100 ₽';
+    statusEl.className = 'create-status error';
+    statusEl.classList.remove('hidden');
+    return;
+  }
+  if (amount > 100000) {
+    statusEl.textContent = '❌ Максимум 100 000 ₽';
+    statusEl.className = 'create-status error';
+    statusEl.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Создаю платёж...';
+  statusEl.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/app-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'create', amount }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    // Открываем ссылку оплаты
+    if (tg?.openLink) tg.openLink(data.confirmationUrl);
+    else window.open(data.confirmationUrl, '_blank');
+
+    // Запоминаем, чтобы проверить после возврата
+    localStorage.setItem('nerv_pending_payment', data.yookassaId);
+
+    statusEl.textContent = '⏳ Ожидаем оплату... Вернись сюда после оплаты.';
+    statusEl.className = 'create-status loading';
+    statusEl.classList.remove('hidden');
+  } catch (e) {
+    statusEl.textContent = `❌ ${e.message}`;
+    statusEl.className = 'create-status error';
+    statusEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💳 Перейти к оплате';
+  }
+};
+
+const loadTopupHistory = async () => {
+  const el = document.getElementById('topup-history');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/app-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'history' }),
+    });
+    const data = await res.json();
+    if (!data.ok || !data.payments.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Пока нет пополнений</div>';
+      return;
+    }
+    const statusEmoji = { succeeded: '✅', pending: '⏳', canceled: '❌', waiting_for_capture: '🟡' };
+    el.innerHTML = data.payments.map(p => `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(35,45,74,0.4);">
+        <span>${statusEmoji[p.status] || '❓'} ${new Date(p.createdAt).toLocaleDateString('ru-RU')}</span>
+        <strong style="color:var(--accent);">+${p.amount} ₽</strong>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = '';
+  }
+};
+
+const checkPendingPayment = async () => {
+  const pending = localStorage.getItem('nerv_pending_payment');
+  if (!pending) return;
+  try {
+    const res = await fetch('/api/app-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'check', yookassaId: pending }),
+    });
+    const data = await res.json();
+    if (data.ok && data.status === 'succeeded') {
+      tg?.HapticFeedback?.notificationOccurred?.('success');
+      tg?.showAlert?.('✅ Платёж прошёл! Баланс пополнен.');
+      localStorage.removeItem('nerv_pending_payment');
+      loadProfile();
+    } else if (data.ok && data.status === 'canceled') {
+      localStorage.removeItem('nerv_pending_payment');
+    }
+  } catch (e) { /* silent */ }
+};
+
 // ========== СОЗДАНИЕ ЗАДАНИЯ ==========
 const initCreateForm = () => {
   const form = document.getElementById('create-form');
@@ -1505,6 +1668,8 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'btn-open-reviews') { tg?.HapticFeedback?.impactOccurred?.('light'); openMyReviews(); return; }
   if (e.target.id === 'btn-open-pending') { tg?.HapticFeedback?.impactOccurred?.('light'); openPendingReviews(); return; }
   if (e.target.id === 'reviews-modal-close' || e.target.id === 'reviews-modal-backdrop') { closeReviewsModal(); return; }
+
+  if (e.target.id === 'btn-topup') { openTopupModal(); return; }
 
   const roleCard = e.target.closest('.role-card');
   if (roleCard) { selectRole(roleCard.dataset.role); return; }

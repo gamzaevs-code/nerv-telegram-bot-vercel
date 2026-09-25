@@ -1,10 +1,17 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 // API: объединённый эндпоинт
-// online + favorites + metric + public profile
+// activity + notifications + reviews + online + favorites + metrics + user_profile
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
 const { ONLINE_THRESHOLD_MIN } = require('../lib/presence');
+const {
+  createReview,
+  getPlayerReviews,
+  getTopRated,
+  canReview,
+  getPendingReviews,
+} = require('../lib/reviews');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
@@ -24,7 +31,17 @@ const verifyInitData = (initData) => {
   return JSON.parse(params.get('user'));
 };
 
-// Вспомогательная: определить онлайн
+const timeAgo = (date) => {
+  const diff = Date.now() - new Date(date).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'только что';
+  if (m < 60) return `${m} мин`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} ч`;
+  const d = Math.floor(h / 24);
+  return `${d} дн`;
+};
+
 const isOnline = (lastSeen) => {
   if (!lastSeen) return false;
   return (Date.now() - new Date(lastSeen).getTime()) / 60000 < ONLINE_THRESHOLD_MIN;
@@ -41,12 +58,139 @@ module.exports = async (req, res) => {
     const chatId = String(tgUser.id);
 
     const meRes = await query(
-      `SELECT id, balance, reputation FROM "User" WHERE "telegramChatId" = $1`,
+      `SELECT id, balance, reputation, "displayName", name FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
     if (meRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
     const user = meRes.rows[0];
     const myId = user.id;
+
+    // ═══════════ ACTIVITY ═══════════
+    if (!action || action === 'activity') {
+      const feed = [];
+
+      const tasks = await query(
+        `SELECT t.id, t.title, t.reward, COALESCE(u."displayName", u.name) AS creator,
+                t."createdAt"
+         FROM "Task" t JOIN "User" u ON u.id = t."creatorId"
+         WHERE t."createdAt" >= NOW() - INTERVAL '2 days'
+         ORDER BY t."createdAt" DESC LIMIT 5`
+      );
+      tasks.rows.forEach(t => feed.push({
+        icon: '📌', type: 'task',
+        text: `Задание «${t.title}»`,
+        meta: `${t.reward} ₽`,
+        timeAgo: timeAgo(t.createdAt),
+        createdAt: t.createdAt,
+      }));
+
+      const approved = await query(
+        `SELECT t.title, t.reward, COALESCE(u."displayName", u.name) AS player, t."updatedAt"
+         FROM "Task" t JOIN "User" u ON u.id = t."playerId"
+         WHERE t.status='approved' AND t."updatedAt" >= NOW() - INTERVAL '2 days'
+         ORDER BY t."updatedAt" DESC LIMIT 5`
+      );
+      approved.rows.forEach(t => feed.push({
+        icon: '✅', type: 'approved',
+        text: `${t.player} выполнил «${t.title}»`,
+        meta: `+${t.reward} ₽`,
+        timeAgo: timeAgo(t.updatedAt),
+        createdAt: t.updatedAt,
+      }));
+
+      const ach = await query(
+        `SELECT a.name, a.icon, COALESCE(u."displayName", u.name) AS uname, ua."unlockedAt"
+         FROM "UserAchievement" ua
+         JOIN "Achievement" a ON a.id = ua."achievementId"
+         JOIN "User" u ON u.id = ua."userId"
+         WHERE ua."unlockedAt" >= NOW() - INTERVAL '2 days'
+         ORDER BY ua."unlockedAt" DESC LIMIT 3`
+      );
+      ach.rows.forEach(a => feed.push({
+        icon: a.icon || '🎖', type: 'achievement',
+        text: `${a.uname} открыл «${a.name}»`,
+        meta: '',
+        timeAgo: timeAgo(a.unlockedAt),
+        createdAt: a.unlockedAt,
+      }));
+
+      feed.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      return res.status(200).json({ ok: true, feed: feed.slice(0, 15) });
+    }
+
+    // ═══════════ NOTIFICATIONS ═══════════
+    if (action === 'notifications') {
+      const r = await query(
+        `SELECT id, message, "isRead", "createdAt"
+         FROM "Notification" WHERE "userId" = $1
+         ORDER BY "createdAt" DESC LIMIT 30`,
+        [myId]
+      );
+      const unreadRes = await query(
+        `SELECT COUNT(*)::int AS c FROM "Notification"
+         WHERE "userId"=$1 AND "isRead"=false`,
+        [myId]
+      );
+      return res.status(200).json({
+        ok: true,
+        notifications: r.rows.map(n => ({
+          id: n.id,
+          message: n.message,
+          isRead: n.isRead,
+          timeAgo: timeAgo(n.createdAt),
+        })),
+        unreadCount: unreadRes.rows[0].c,
+      });
+    }
+
+    if (action === 'mark_all_read') {
+      await query(
+        `UPDATE "Notification" SET "isRead"=true WHERE "userId"=$1 AND "isRead"=false`,
+        [myId]
+      );
+      return res.status(200).json({ ok: true });
+    }
+
+    // ═══════════ REVIEWS ═══════════
+    if (action === 'reviews_top') {
+      const top = await getTopRated(10);
+      return res.status(200).json({ ok: true, top });
+    }
+
+    if (action === 'reviews_player') {
+      const playerId = parseInt(req.body.playerId, 10);
+      if (!playerId) return res.status(400).json({ ok: false, error: 'playerId required' });
+      const reviews = await getPlayerReviews(playerId, 20);
+      return res.status(200).json({ ok: true, reviews });
+    }
+
+    if (action === 'reviews_pending') {
+      const pending = await getPendingReviews(myId, 10);
+      return res.status(200).json({ ok: true, pending });
+    }
+
+    if (action === 'reviews_can') {
+      const taskId = parseInt(req.body.taskId, 10);
+      if (!taskId) return res.status(400).json({ ok: false, error: 'taskId required' });
+      const result = await canReview(taskId, myId);
+      return res.status(200).json({ ok: true, ...result });
+    }
+
+    if (action === 'reviews_create') {
+      const { taskId, playerId, rating, comment } = req.body;
+      if (!taskId || !playerId || !rating) {
+        return res.status(400).json({ ok: false, error: 'taskId, playerId, rating required' });
+      }
+      const result = await createReview({
+        taskId: parseInt(taskId, 10),
+        reviewerId: myId,
+        playerId: parseInt(playerId, 10),
+        rating: parseInt(rating, 10),
+        comment: comment || null,
+      });
+      if (!result.ok) return res.status(400).json(result);
+      return res.status(200).json({ ok: true, review: result.review });
+    }
 
     // ═══════════ PUBLIC PROFILE ═══════════
     if (action === 'user_profile') {
@@ -74,7 +218,6 @@ module.exports = async (req, res) => {
       const initials = display.split(' ').slice(0, 2)
         .map(w => w[0] ? w[0].toUpperCase() : '').join('');
 
-      // Последние 5 отзывов
       const reviewsRes = await query(
         `SELECT r.rating, r.comment, r."createdAt",
                 COALESCE(ru."displayName", ru.name) AS reviewer_name,
@@ -88,13 +231,11 @@ module.exports = async (req, res) => {
         [targetId]
       );
 
-      // Место в топе по репутации
       const rankRes = await query(
         `SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1 AND "isBanned" = false`,
         [u.reputation]
       );
 
-      // Флаг избранного
       const favRes = await query(
         `SELECT 1 FROM "FavoriteUser" WHERE "userId"=$1 AND "targetId"=$2 LIMIT 1`,
         [myId, targetId]
