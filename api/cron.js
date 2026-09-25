@@ -9,6 +9,13 @@ module.exports = async (req, res) => {
   const auth = req.headers['authorization'] || '';
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'unauthorized' });
+  }  const url0 = new URL(req.url, 'http://x');
+  const secretFromQuery = url0.searchParams.get('secret');
+  const auth = req.headers['authorization'] || '';
+  const validHeader = auth === `Bearer ${process.env.CRON_SECRET}`;
+  const validQuery = secretFromQuery && secretFromQuery === process.env.CRON_SECRET;
+  if (!validHeader && !validQuery) {
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
   const url = new URL(req.url, 'http://x');
