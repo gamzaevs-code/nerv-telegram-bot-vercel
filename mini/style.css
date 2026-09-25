@@ -1782,3 +1782,9 @@ body {
 #tab-tasks .activity-feed .activity-list {
   max-height: 140px;
 }
+
+.logo-img {
+  height: 40px;
+  width: auto;
+  filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.5)) drop-shadow(0 0 20px rgba(255, 0, 170, 0.3));
+}
