@@ -554,6 +554,7 @@ const renderUserProfile = (p) => {
       </div>`}
     </div>
 
+    <button class="btn-history" onclick="openTasksHistory(${p.id})">📋 История заданий</button>
     ${p.isMe ? '' : `
       <button class="btn-favorite ${p.isFavorite ? 'active' : ''}" id="user-fav-btn">
         ${p.isFavorite ? '★ В избранном' : '☆ Добавить в избранное'}
@@ -1807,6 +1808,7 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'btn-open-pending') { tg?.HapticFeedback?.impactOccurred?.('light'); openPendingReviews(); return; }
   if (e.target.id === 'reviews-modal-close' || e.target.id === 'reviews-modal-backdrop') { closeReviewsModal(); return; }
   
+  if (e.target.id === 'btn-tasks-history') { openTasksHistory(currentUser?.id); return; }
   if (e.target.id === 'btn-withdraw') { openWithdrawModal(); return; }
   
   if (e.target.id === 'btn-topup') { openTopupModal(); return; }
@@ -1995,4 +1997,161 @@ const loadWithdrawHistory = async () => {
   } catch (e) {
     el.innerHTML = '';
   }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   ИСТОРИЯ ЗАДАНИЙ
+   ═══════════════════════════════════════════════════════════ */
+
+let tasksHistoryUserId = null;
+let tasksHistoryTab = 'player';
+
+window.openTasksHistory = (userId) => {
+  tasksHistoryUserId = userId || currentUser?.id;
+  tasksHistoryTab = 'player';
+  tg?.HapticFeedback?.impactOccurred?.('light');
+
+  let modal = document.getElementById('tasks-history-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'tasks-history-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="tasks-history-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-id">📋 ИСТОРИЯ ЗАДАНИЙ</span>
+          <button class="modal-close" id="tasks-history-close">✕</button>
+        </div>
+        <div class="tasks-history-tabs">
+          <button class="tasks-history-tab active" data-thtab="player">🎮 Выполнил</button>
+          <button class="tasks-history-tab" data-thtab="creator">🎨 Создал</button>
+        </div>
+        <div id="tasks-history-body">
+          <div class="modal-loading">Загрузка...</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('tasks-history-backdrop').addEventListener('click', closeTasksHistory);
+    document.getElementById('tasks-history-close').addEventListener('click', closeTasksHistory);
+
+    modal.querySelectorAll('.tasks-history-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        modal.querySelectorAll('.tasks-history-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        tasksHistoryTab = btn.dataset.thtab;
+        loadTasksHistory();
+      });
+    });
+  }
+
+  // Сбросить активный таб
+  modal.querySelectorAll('.tasks-history-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.thtab === 'player');
+  });
+
+  modal.classList.remove('hidden');
+  loadTasksHistory();
+};
+
+window.closeTasksHistory = () => {
+  const m = document.getElementById('tasks-history-modal');
+  if (m) m.classList.add('hidden');
+};
+
+const loadTasksHistory = async () => {
+  const body = document.getElementById('tasks-history-body');
+  if (!body) return;
+  body.innerHTML = '<div class="modal-loading">Загрузка...</div>';
+
+  try {
+    const res = await fetch('/api/app-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initData,
+        action: 'user_tasks',
+        targetId: tasksHistoryUserId,
+        tab: tasksHistoryTab,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    renderTasksHistory(data);
+  } catch (e) {
+    body.innerHTML = `<div class="notif-empty">❌ ${escapeHtml(e.message)}</div>`;
+  }
+};
+
+const renderTasksHistory = (data) => {
+  const body = document.getElementById('tasks-history-body');
+  if (!body) return;
+
+  const statusLabels = {
+    open: '🟢 Открыто', taken: '🟡 Взято', voting: '🗳 Голосование',
+    approved: '✅ Выполнено', rejected: '❌ Отклонено',
+  };
+
+  let html = '';
+
+  // Сводка для таба «Выполнил»
+  if (data.tab === 'player' && data.stats) {
+    html += `<div class="tasks-history-stats">
+      <div class="th-stat">
+        <div class="th-stat-icon">✅</div>
+        <div class="th-stat-value">${data.stats.approved}</div>
+        <div class="th-stat-label">Выполнено</div>
+      </div>
+      <div class="th-stat">
+        <div class="th-stat-icon">❌</div>
+        <div class="th-stat-value">${data.stats.rejected}</div>
+        <div class="th-stat-label">Отклонено</div>
+      </div>
+      <div class="th-stat">
+        <div class="th-stat-icon">💰</div>
+        <div class="th-stat-value">${Number(data.stats.totalEarned).toLocaleString('ru')}</div>
+        <div class="th-stat-label">Заработано ₽</div>
+      </div>
+    </div>`;
+  }
+
+  if (!data.tasks || data.tasks.length === 0) {
+    html += `<div class="notif-empty">${data.tab === 'player' ? '📭 Ещё не выполнял задания' : '📭 Ещё не создавал задания'}</div>`;
+    body.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="tasks-history-list">';
+  for (const t of data.tasks) {
+    const statusLabel = statusLabels[t.status] || t.status;
+    const dateStr = new Date(t.date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    const other = t.otherName
+      ? (data.tab === 'player' ? `👤 @${escapeHtml(t.otherName)}` : `🎮 @${escapeHtml(t.otherName)}`)
+      : (data.tab === 'creator' ? '<span style="color:var(--text-muted);">Игрок не взят</span>' : '');
+
+    html += `<div class="th-item" data-task-id="${t.id}">
+      <div class="th-item-head">
+        <div class="th-item-title">${escapeHtml(t.title)}</div>
+        <div class="th-item-reward">${t.reward} ₽</div>
+      </div>
+      <div class="th-item-meta">
+        <span class="th-status th-status-${t.status}">${statusLabel}</span>
+        <span>${other}</span>
+        <span style="margin-left:auto;opacity:0.6;">${dateStr}</span>
+      </div>
+    </div>`;
+  }
+  html += '</div>';
+
+  body.innerHTML = html;
+
+  // Клик → открыть задание
+  body.querySelectorAll('.th-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const taskId = parseInt(el.dataset.taskId, 10);
+      closeTasksHistory();
+      setTimeout(() => openTaskModal(taskId), 150);
+    });
+  });
 };

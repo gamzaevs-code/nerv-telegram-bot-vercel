@@ -1,6 +1,6 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 // API: объединённый эндпоинт
-// activity + notifications + reviews + online + favorites + metrics + user_profile + search
+// activity + notifications + reviews + online + favorites + metrics + user_profile + search + tasks_history
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -214,7 +214,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, review: result.review });
     }
 
-    // ═══════════ SEARCH USERS ⭐ NEW ═══════════
+    // ═══════════ SEARCH USERS ═══════════
     if (action === 'search_users') {
       const q = String(req.body.query || '').trim();
       if (q.length < 2) {
@@ -254,6 +254,85 @@ module.exports = async (req, res) => {
           isOnline: isOnline(u.lastSeen),
           isMe: u.id === myId,
         })),
+      });
+    }
+
+    // ═══════════ USER TASKS HISTORY ═══════════
+    if (action === 'user_tasks') {
+      const targetId = parseInt(req.body.targetId, 10) || myId;
+      const tab = String(req.body.tab || 'player');
+
+      // Проверка, что юзер существует
+      const uRes = await query(`SELECT id FROM "User" WHERE id = $1 AND "isBanned" = false`, [targetId]);
+      if (uRes.rows.length === 0) {
+        return res.status(404).json({ ok: false, error: 'Юзер не найден' });
+      }
+
+      let tasks = [];
+
+      if (tab === 'player') {
+        const r = await query(
+          `SELECT t.id, t.title, t.reward, t.status, t."updatedAt", t."createdAt",
+                  COALESCE(u."displayName", u.name) AS creator_name
+           FROM "Task" t
+           JOIN "User" u ON u.id = t."creatorId"
+           WHERE t."playerId" = $1
+             AND t.status IN ('approved', 'rejected', 'voting', 'taken')
+           ORDER BY t."updatedAt" DESC NULLS LAST
+           LIMIT 30`,
+          [targetId]
+        );
+        tasks = r.rows.map(t => ({
+          id: t.id,
+          title: t.title,
+          reward: t.reward,
+          status: t.status,
+          otherName: t.creator_name,
+          date: t.updatedAt || t.createdAt,
+        }));
+      } else {
+        const r = await query(
+          `SELECT t.id, t.title, t.reward, t.status, t."updatedAt", t."createdAt",
+                  COALESCE(u."displayName", u.name) AS player_name
+           FROM "Task" t
+           LEFT JOIN "User" u ON u.id = t."playerId"
+           WHERE t."creatorId" = $1
+           ORDER BY t."createdAt" DESC
+           LIMIT 30`,
+          [targetId]
+        );
+        tasks = r.rows.map(t => ({
+          id: t.id,
+          title: t.title,
+          reward: t.reward,
+          status: t.status,
+          otherName: t.player_name || null,
+          date: t.createdAt,
+        }));
+      }
+
+      // Сводка
+      const statsRes = await query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status='approved')::int AS approved,
+           COUNT(*) FILTER (WHERE status='rejected')::int AS rejected,
+           COALESCE(SUM(reward) FILTER (WHERE status='approved'), 0)::int AS total_earned
+         FROM "Task" WHERE "playerId" = $1`,
+        [targetId]
+      );
+
+      const stats = tab === 'player' ? {
+        approved: statsRes.rows[0].approved,
+        rejected: statsRes.rows[0].rejected,
+        totalEarned: statsRes.rows[0].total_earned,
+      } : null;
+
+      return res.status(200).json({
+        ok: true,
+        targetId,
+        tab,
+        tasks,
+        stats,
       });
     }
 
