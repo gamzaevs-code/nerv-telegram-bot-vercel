@@ -1788,3 +1788,23 @@ body {
   width: auto;
   filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.5)) drop-shadow(0 0 20px rgba(255, 0, 170, 0.3));
 }
+
+/* ▬▬▬▬▬ ВЫВОД ▬▬▬▬▬ */
+.btn-withdraw {
+  width: 100%;
+  padding: 16px;
+  background: linear-gradient(135deg, #00ff88, #00e5ff);
+  color: #0a0e1a;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 255, 136, 0.3);
+  transition: transform 0.15s ease;
+}
+.btn-withdraw:active {
+  transform: scale(0.98);
+  box-shadow: 0 2px 12px rgba(0, 255, 136, 0.5);
+}

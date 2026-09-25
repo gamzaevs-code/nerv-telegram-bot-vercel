@@ -1806,7 +1806,9 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'btn-open-reviews') { tg?.HapticFeedback?.impactOccurred?.('light'); openMyReviews(); return; }
   if (e.target.id === 'btn-open-pending') { tg?.HapticFeedback?.impactOccurred?.('light'); openPendingReviews(); return; }
   if (e.target.id === 'reviews-modal-close' || e.target.id === 'reviews-modal-backdrop') { closeReviewsModal(); return; }
-
+  
+  if (e.target.id === 'btn-withdraw') { openWithdrawModal(); return; }
+  
   if (e.target.id === 'btn-topup') { openTopupModal(); return; }
 
   const roleCard = e.target.closest('.role-card');
@@ -1862,3 +1864,135 @@ if (tg && tg.onEvent) {
     }
   });
 }
+
+/* ═══════════════════════════════════════════════════════════
+   ВЫВОД ДЕНЕГ
+   ═══════════════════════════════════════════════════════════ */
+
+window.openWithdrawModal = () => {
+  let modal = document.getElementById('withdraw-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'withdraw-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="withdraw-modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-id">💸 ВЫВОД</span>
+          <button class="modal-close" id="withdraw-modal-close">✕</button>
+        </div>
+        <h2 class="modal-title">Вывести деньги</h2>
+        <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 500 ₽ • Без комиссии</p>
+
+        <div class="form-group">
+          <label class="form-label">💰 Сумма (₽)</label>
+          <input type="number" id="withdraw-amount" class="form-input" placeholder="Минимум 500" min="500" max="100000">
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label class="form-label">💳 Куда вывести</label>
+          <input type="text" id="withdraw-card" class="form-input" placeholder="Номер карты или телефон" maxlength="100">
+          <div class="form-hint">Например: 2200 1234 5678 9010</div>
+        </div>
+
+        <button class="btn-publish" id="withdraw-go" style="margin-top:12px;">💸 Отправить заявку</button>
+        <div id="withdraw-status" class="create-status hidden"></div>
+
+        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:12px;">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">📜 История выводов</div>
+          <div id="withdraw-history"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('withdraw-modal-backdrop').addEventListener('click', closeWithdrawModal);
+    document.getElementById('withdraw-modal-close').addEventListener('click', closeWithdrawModal);
+    document.getElementById('withdraw-go').addEventListener('click', createWithdrawRequest);
+  }
+  modal.classList.remove('hidden');
+  loadWithdrawHistory();
+};
+
+window.closeWithdrawModal = () => {
+  const m = document.getElementById('withdraw-modal');
+  if (m) m.classList.add('hidden');
+};
+
+const createWithdrawRequest = async () => {
+  const amount = parseInt(document.getElementById('withdraw-amount').value, 10);
+  const card = document.getElementById('withdraw-card').value.trim();
+  const statusEl = document.getElementById('withdraw-status');
+  const btn = document.getElementById('withdraw-go');
+
+  if (isNaN(amount) || amount < 500) {
+    statusEl.textContent = '❌ Минимум 500 ₽';
+    statusEl.className = 'create-status error';
+    statusEl.classList.remove('hidden');
+    return;
+  }
+  if (!card || card.length < 8) {
+    statusEl.textContent = '❌ Укажи карту или телефон';
+    statusEl.className = 'create-status error';
+    statusEl.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Отправляю...';
+  statusEl.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/app-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'withdraw_create', amount, card }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    tg?.HapticFeedback?.notificationOccurred?.('success');
+    statusEl.textContent = '✅ Заявка отправлена! Ожидай выплату 1-3 рабочих дня.';
+    statusEl.className = 'create-status success';
+    statusEl.classList.remove('hidden');
+
+    document.getElementById('withdraw-amount').value = '';
+    document.getElementById('withdraw-card').value = '';
+
+    loadProfile();
+    loadWithdrawHistory();
+  } catch (e) {
+    statusEl.textContent = `❌ ${e.message}`;
+    statusEl.className = 'create-status error';
+    statusEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💸 Отправить заявку';
+  }
+};
+
+const loadWithdrawHistory = async () => {
+  const el = document.getElementById('withdraw-history');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/app-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'withdraw_history' }),
+    });
+    const data = await res.json();
+    if (!data.ok || !data.withdrawals.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Пока нет выводов</div>';
+      return;
+    }
+    const st = { pending: '⏳', approved: '🟡', paid: '✅', rejected: '❌' };
+    el.innerHTML = data.withdrawals.map(w => `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(35,45,74,0.4);">
+        <span>${st[w.status] || '❓'} ${new Date(w.createdAt).toLocaleDateString('ru-RU')}</span>
+        <strong style="color:var(--accent);">${w.amount} ₽</strong>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = '';
+  }
+};
