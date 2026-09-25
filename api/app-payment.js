@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: ЮKassa — создание платежа + вебхук + история
+// API: ЮKassa — создание платежа + вебхук + история + вывод
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -117,12 +117,115 @@ module.exports = async (req, res) => {
         [yookassaId, me.id]
       );
       if (pRes.rows.length === 0) return res.status(404).json({ ok: false, error: 'Платёж не найден' });
+      const localPayment = pRes.rows[0];
+
+      // ДОЖИМ: если в ЮKassa succeeded, а у нас pending — применяем вебхук вручную
+      if (yPayment.status === 'succeeded' && localPayment.status !== 'succeeded') {
+        console.log('[check] дожим платежа', yookassaId);
+        await handleWebhook({
+          event: 'payment.succeeded',
+          object: yPayment,
+        });
+        const recheck = await query(
+          `SELECT status FROM "Payment" WHERE id = $1`,
+          [localPayment.id]
+        );
+        localPayment.status = recheck.rows[0]?.status || 'succeeded';
+      }
 
       return res.status(200).json({
         ok: true,
         status: yPayment.status,
-        localStatus: pRes.rows[0].status,
-        amount: Number(pRes.rows[0].amount),
+        localStatus: localPayment.status,
+        amount: Number(localPayment.amount),
+      });
+    }
+
+    // ═══ Создать запрос на вывод ═══
+    if (action === 'withdraw_create') {
+      const amount = parseInt(req.body.amount, 10);
+      const card = String(req.body.card || '').trim();
+
+      if (isNaN(amount) || amount < 500) {
+        return res.status(400).json({ ok: false, error: 'Минимум 500 ₽' });
+      }
+      if (amount > 100000) {
+        return res.status(400).json({ ok: false, error: 'Максимум 100 000 ₽' });
+      }
+      if (card.length < 8 || card.length > 100) {
+        return res.status(400).json({ ok: false, error: 'Введите карту или телефон (8-100 символов)' });
+      }
+
+      const uRes = await query(`SELECT balance FROM "User" WHERE id = $1`, [me.id]);
+      if (uRes.rows[0].balance < amount) {
+        return res.status(400).json({ ok: false, error: `Недостаточно. Баланс: ${uRes.rows[0].balance} ₽` });
+      }
+
+      const existRes = await query(
+        `SELECT id FROM "WithdrawalRequest" WHERE "userId" = $1 AND status IN ('pending', 'approved') LIMIT 1`,
+        [me.id]
+      );
+      if (existRes.rows.length > 0) {
+        return res.status(400).json({ ok: false, error: 'У тебя уже есть активный запрос на вывод' });
+      }
+
+      await query(`UPDATE "User" SET balance = balance - $1 WHERE id = $2`, [amount, me.id]);
+      await query(
+        `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
+         VALUES ($1,'withdraw_hold',$2,'pending',$3,NOW())`,
+        [me.id, -amount, `Запрос на вывод ${amount} ₽`]
+      );
+
+      const ins = await query(
+        `INSERT INTO "WithdrawalRequest" ("userId",amount,card,status,"createdAt")
+         VALUES ($1,$2,$3,'pending',NOW()) RETURNING id`,
+        [me.id, amount, card]
+      );
+
+      // Уведомление админам
+      try {
+        const { notifyUser } = require('../lib/notify');
+        const admins = await query(`SELECT id FROM "User" WHERE role = 'admin' AND "isBanned" = false`);
+        const uInfo = await query(`SELECT COALESCE("displayName", name) AS name FROM "User" WHERE id = $1`, [me.id]);
+        const uname = uInfo.rows[0]?.name || 'Юзер';
+        for (const a of admins.rows) {
+          await notifyUser(a.id, {
+            message: `💸 Запрос на вывод ${amount} ₽ от @${uname}`,
+            pushText:
+              `💸 *Запрос на вывод*\n\n` +
+              `👤 @${uname}\n` +
+              `💰 Сумма: *${amount} ₽*\n` +
+              `💳 Карта: \`${card}\`\n\n` +
+              `Открой \`/withdrawals\` чтобы обработать.`,
+            type: 'system',
+            icon: '💸',
+            force: true,
+          });
+        }
+      } catch (e) { console.error('notify admins:', e); }
+
+      return res.status(200).json({ ok: true, requestId: ins.rows[0].id });
+    }
+
+    // ═══ История выводов ═══
+    if (action === 'withdraw_history') {
+      const r = await query(
+        `SELECT id, amount, card, status, "createdAt", "processedAt", "adminComment"
+         FROM "WithdrawalRequest" WHERE "userId" = $1
+         ORDER BY "createdAt" DESC LIMIT 20`,
+        [me.id]
+      );
+      return res.status(200).json({
+        ok: true,
+        withdrawals: r.rows.map(w => ({
+          id: w.id,
+          amount: w.amount,
+          card: w.card,
+          status: w.status,
+          createdAt: w.createdAt,
+          processedAt: w.processedAt,
+          adminComment: w.adminComment,
+        })),
       });
     }
 
