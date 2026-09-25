@@ -89,6 +89,25 @@ module.exports = async (req, res) => {
         return res.status(200).send('OK');
       }
 
+      // ═══════════ /stats — переключение периода ═══════════
+      if (data.startsWith('stats_view_')) {
+        if (!isAdmin) {
+          await edit('🚫 *Только для админов*', 'Markdown', { inline_keyboard: [] });
+          return res.status(200).send('OK');
+        }
+        const period = data.replace('stats_view_', '');
+        try {
+          const { getStats, renderStats, buildStatsKeyboard } = require('../lib/stats');
+          const stats = await getStats(period);
+          const msg = renderStats(stats);
+          await edit(msg, 'Markdown', buildStatsKeyboard(period));
+        } catch (e) {
+          console.error('stats_view:', e);
+          await edit('❌ *Ошибка*', 'Markdown', { inline_keyboard: [] });
+        }
+        return res.status(200).send('OK');
+      }
+
       if (await handleShopCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleRoleCallback(data, ctx)) return res.status(200).send('OK');
       if (await handleAdminCallback(data, ctx)) return res.status(200).send('OK');
@@ -284,6 +303,29 @@ module.exports = async (req, res) => {
       } catch (e) {
         console.error('/find:', e);
         await send('❌ *Ошибка поиска*');
+      }
+      return res.status(200).send('OK');
+    }
+
+    // ========== /stats (АДМИН) ==========
+    if (text.startsWith('/stats')) {
+      if (!user) {
+        await send('❌ *Сначала привяжи аккаунт*');
+        return res.status(200).send('OK');
+      }
+      if (!isAdmin) {
+        await send('🚫 *Только для админов*');
+        return res.status(200).send('OK');
+      }
+
+      try {
+        const { getStats, renderStats, buildStatsKeyboard } = require('../lib/stats');
+        const stats = await getStats('week');
+        const msg = renderStats(stats);
+        await send(msg, 'Markdown', buildStatsKeyboard('week'));
+      } catch (e) {
+        console.error('/stats:', e);
+        await send('❌ *Ошибка загрузки статистики*');
       }
       return res.status(200).send('OK');
     }
