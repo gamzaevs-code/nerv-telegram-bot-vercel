@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// NERV MINI APP — логика фронтенда (v7: ЮKassa + никнеймы + аватарки)
+// NERV MINI APP — логика фронтенда (v8: поиск игроков)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 
 const tg = window.Telegram?.WebApp;
@@ -1396,11 +1396,9 @@ const createTopupPayment = async () => {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
 
-    // Открываем ссылку оплаты
     if (tg?.openLink) tg.openLink(data.confirmationUrl);
     else window.open(data.confirmationUrl, '_blank');
 
-    // Запоминаем, чтобы проверить после возврата
     localStorage.setItem('nerv_pending_payment', data.yookassaId);
 
     statusEl.textContent = '⏳ Ожидаем оплату... Вернись сюда после оплаты.';
@@ -1457,10 +1455,149 @@ const checkPendingPayment = async () => {
       tg?.showAlert?.('✅ Платёж прошёл! Баланс пополнен.');
       localStorage.removeItem('nerv_pending_payment');
       loadProfile();
+      setTimeout(loadProfile, 1500);
+      setTimeout(loadProfile, 4000);
     } else if (data.ok && data.status === 'canceled') {
       localStorage.removeItem('nerv_pending_payment');
+    } else if (data.ok && data.status === 'pending') {
+      setTimeout(checkPendingPayment, 3000);
     }
   } catch (e) { /* silent */ }
+};
+
+// ========== ПОИСК ИГРОКОВ ==========
+const SEARCH_HISTORY_KEY = 'nerv_search_history';
+
+const getSearchHistory = () => {
+  try { return JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]'); }
+  catch { return []; }
+};
+
+const addToSearchHistory = (q) => {
+  q = q.trim();
+  if (!q) return;
+  let h = getSearchHistory().filter(x => x.toLowerCase() !== q.toLowerCase());
+  h.unshift(q);
+  h = h.slice(0, 5);
+  try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(h)); } catch {}
+};
+
+const renderSearchHistory = () => {
+  const el = document.getElementById('search-history');
+  if (!el) return;
+  const h = getSearchHistory();
+  if (h.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">История</div>' +
+    h.map(q => `<button class="search-chip" data-q="${escapeAttr(q)}">${escapeHtml(q)}</button>`).join('');
+  el.querySelectorAll('.search-chip').forEach(b => {
+    b.addEventListener('click', () => {
+      document.getElementById('search-input').value = b.dataset.q;
+      doSearch(b.dataset.q);
+    });
+  });
+};
+
+window.openSearchModal = () => {
+  tg?.HapticFeedback?.impactOccurred?.('light');
+  let modal = document.getElementById('search-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'search-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="search-modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-id">🔍 ПОИСК ИГРОКА</span>
+          <button class="modal-close" id="search-modal-close">✕</button>
+        </div>
+        <input type="text" id="search-input" class="form-input" placeholder="Введи ник (мин. 2 символа)..." maxlength="30" autocomplete="off" style="margin:12px 0;">
+        <div id="search-history" style="margin-bottom:12px;"></div>
+        <div id="search-results"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('search-modal-backdrop').addEventListener('click', closeSearchModal);
+    document.getElementById('search-modal-close').addEventListener('click', closeSearchModal);
+
+    const input = document.getElementById('search-input');
+    let debounceTimer;
+    input.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => doSearch(input.value), 400);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doSearch(input.value); }
+    });
+  }
+  modal.classList.remove('hidden');
+  renderSearchHistory();
+  setTimeout(() => document.getElementById('search-input').focus(), 150);
+};
+
+window.closeSearchModal = () => {
+  const m = document.getElementById('search-modal');
+  if (m) m.classList.add('hidden');
+};
+
+const doSearch = async (q) => {
+  q = (q || '').trim();
+  const results = document.getElementById('search-results');
+  if (!results) return;
+
+  if (q.length < 2) {
+    results.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:20px;">Введи минимум 2 символа</div>';
+    return;
+  }
+
+  results.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">Поиск...</div>';
+
+  try {
+    const res = await fetch('/api/app-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'search_users', query: q }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    if (!data.users.length) {
+      results.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:20px;">Ничего не найдено по «${escapeHtml(q)}»</div>`;
+      return;
+    }
+
+    addToSearchHistory(q);
+
+    results.innerHTML = data.users.map(u => {
+      const initials = (u.name || '?').split(' ').slice(0, 2)
+        .map(w => w[0] ? w[0].toUpperCase() : '').join('');
+      const rating = u.ratingCount > 0 ? `⭐ ${Number(u.ratingAvg).toFixed(1)}` : '⭐ —';
+      const roleIcon = u.role === 'player' ? '🎮' : u.role === 'viewer' ? '👁' : '⚙️';
+      const meTag = u.isMe ? ' <span style="color:var(--accent);font-size:10px;">ТЫ</span>' : '';
+      return `<div class="user-row" data-user-id="${u.id}">
+        <div class="user-avatar-sm">
+          ${initials}
+          ${u.isOnline ? '<div class="user-online-dot"></div>' : ''}
+        </div>
+        <div class="user-info">
+          <div class="user-name">@${escapeHtml(u.name)}${meTag}</div>
+          <div class="user-sub">${roleIcon} Ур. ${u.level} · ${rating} · реп. ${u.reputation}</div>
+        </div>
+        <div class="user-action">›</div>
+      </div>`;
+    }).join('');
+
+    results.querySelectorAll('.user-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const uid = parseInt(row.dataset.userId, 10);
+        closeSearchModal();
+        setTimeout(() => openUserProfile(uid), 150);
+      });
+    });
+  } catch (e) {
+    console.error('doSearch:', e);
+    results.innerHTML = `<div style="color:var(--error);text-align:center;padding:20px;">❌ ${escapeHtml(e.message)}</div>`;
+  }
 };
 
 // ========== СОЗДАНИЕ ЗАДАНИЯ ==========
@@ -1644,6 +1781,7 @@ const showError = (msg) => {
 
 // ========== СОБЫТИЯ ==========
 document.addEventListener('click', (e) => {
+  if (e.target.closest('#btn-search')) { openSearchModal(); return; }
   if (e.target.closest('#btn-notif')) { tg?.HapticFeedback?.impactOccurred?.('light'); openNotifModal(); return; }
 
   const tab = e.target.closest('.tab');
@@ -1709,3 +1847,18 @@ document.addEventListener('DOMContentLoaded', () => {
   init();
   initCreateForm();
 });
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    checkPendingPayment();
+    loadProfile();
+  }
+});
+
+if (tg && tg.onEvent) {
+  tg.onEvent('viewportChanged', () => {
+    if (!document.hidden) {
+      checkPendingPayment();
+    }
+  });
+}
