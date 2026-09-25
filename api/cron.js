@@ -1,8 +1,9 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: cron (турниры + сводка админу)
+// API: cron (турниры + сводка + игрок недели)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const { checkAndAwardTournament } = require('../lib/tournament');
 const { sendDailySummaryToAdmin } = require('../lib/dailySummary');
+const { awardWeeklyPlayer } = require('../lib/weeklyAward');
 
 module.exports = async (req, res) => {
   const auth = req.headers['authorization'] || '';
@@ -10,7 +11,6 @@ module.exports = async (req, res) => {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
-  // Определяем, что запускать по query-параметру
   const url = new URL(req.url, 'http://x');
   const task = url.searchParams.get('task');
 
@@ -27,10 +27,17 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, task: 'summary', result });
     }
 
-    // Без параметра — запускаем оба
+    if (task === 'weekly_award') {
+      const result = await awardWeeklyPlayer();
+      console.log('[cron-weekly]', JSON.stringify(result));
+      return res.status(200).json({ ok: true, task: 'weekly_award', result });
+    }
+
+    // Без параметра — запускаем всё (на всякий случай)
     const t = await checkAndAwardTournament(new Date());
     const s = await sendDailySummaryToAdmin();
-    return res.status(200).json({ ok: true, tournament: t, summary: s });
+    const w = await awardWeeklyPlayer();
+    return res.status(200).json({ ok: true, tournament: t, summary: s, weekly: w });
   } catch (e) {
     console.error('[cron] error:', e);
     return res.status(500).json({ ok: false, error: e.message });
