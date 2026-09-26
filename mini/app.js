@@ -127,7 +127,6 @@ const renderProfile = (p) => {
   document.getElementById('profile-ref-code').textContent = p.referralCode;
   document.getElementById('favorites-count').textContent = '—';
 
-  renderSparkline(p.sparkline);
   renderStreakCalendar(p.streakDays);
   renderBonusTimer(p.nextBonusHours);
   renderAchPreview(p.achievements.preview);
@@ -1156,18 +1155,18 @@ const openMetricModal = async (metric) => {
       ).join('')}</div>`;
   }
 
-  if (metric === 'achievements' && data.achievements) {
+        if (metric === 'achievements' && data.achievements) {
     // ⭐ Используем существующую рабочую модалку отзывов
     closeMetricModal();
 
     const reviewsModal = document.getElementById('reviews-modal');
     document.getElementById('reviews-modal-title').textContent = '🎖 ДОСТИЖЕНИЯ';
 
-    const body = document.getElementById('reviews-modal-body');
+    const rBody = document.getElementById('reviews-modal-body');
     const unlocked = data.achievements.filter(a => a.isUnlocked).length;
     const total = data.achievements.length;
 
-    body.innerHTML = `
+    rBody.innerHTML = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;text-align:center;">
         Открыто: <b>${unlocked}</b> из <b>${total}</b>
       </p>

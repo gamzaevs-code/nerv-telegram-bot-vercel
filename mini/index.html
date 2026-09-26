@@ -9,8 +9,21 @@
 </head>
 <body>
   <div id="loading" class="loading">
-    <div class="cyber-spinner"></div>
-    <p>Подключение к NERV...</p>
+    <div class="loading-logo-wrap">
+      <div class="loading-glow"></div>
+      <img class="loading-logo" src="logo.svg" alt="NERV">
+      <div class="loading-scan"></div>
+    </div>
+    <div class="loading-text">
+      <span class="loading-dot"></span>
+      <span class="loading-dot"></span>
+      <span class="loading-dot"></span>
+      <span class="loading-label">ПОДКЛЮЧЕНИЕ К NERV</span>
+    </div>
+    <div class="loading-particles">
+      <span class="lp"></span><span class="lp"></span><span class="lp"></span><span class="lp"></span>
+      <span class="lp"></span><span class="lp"></span><span class="lp"></span><span class="lp"></span>
+    </div>
   </div>
 
   <div id="error" class="error hidden">
@@ -30,27 +43,16 @@
         <div class="role-card" data-role="player">
           <div class="role-icon">🎮</div>
           <div class="role-name">Игрок</div>
-          <div class="role-desc">
-            • Брать задания<br>
-            • Загружать видео<br>
-            • Получать награды
-          </div>
+          <div class="role-desc">• Брать задания<br>• Загружать видео<br>• Получать награды</div>
         </div>
-
         <div class="role-card" data-role="viewer">
           <div class="role-icon">👁</div>
           <div class="role-name">Зритель</div>
-          <div class="role-desc">
-            • Создавать задания<br>
-            • Голосовать<br>
-            • Нанимать игроков
-          </div>
+          <div class="role-desc">• Создавать задания<br>• Голосовать<br>• Нанимать игроков</div>
         </div>
       </div>
 
-      <div class="role-select-hint">
-        Всё можно поменять позже в профиле
-      </div>
+      <div class="role-select-hint">Всё можно поменять позже в профиле</div>
     </div>
   </div>
 
@@ -107,11 +109,6 @@
         </div>
       </div>
 
-      <div class="card sparkline-card" id="sparkline-card">
-        <div class="sparkline-label">📊 Активность за 7 дней</div>
-        <div class="sparkline" id="profile-sparkline"></div>
-      </div>
-
       <div class="stats-grid">
         <div class="stat-card clickable" data-metric="balance">
           <div class="stat-icon">💰</div>
@@ -165,10 +162,8 @@
         <div class="card-arrow" id="profile-rating-count">Пока нет отзывов</div>
       </div>
 
+      <!-- ЕДИНЫЙ блок отзывов + истории (без дублей) -->
       <div class="card">
-        <button class="btn-change-role" id="btn-open-reviews">⭐ Мои отзывы</button>
-        <button class="btn-change-role" id="btn-open-pending" style="margin-top:8px;">📝 Оставить отзыв</button>
-      </div>      <div class="card">
         <button class="btn-change-role" id="btn-open-reviews">⭐ Мои отзывы</button>
         <button class="btn-change-role" id="btn-open-pending" style="margin-top:8px;">📝 Оставить отзыв</button>
         <button class="btn-change-role" id="btn-tasks-history" style="margin-top:8px;">📋 История заданий</button>
@@ -275,9 +270,7 @@
           <div class="form-hint">Комиссия платформы: <span id="commission-preview">0</span> ₽</div>
         </div>
 
-        <button type="submit" class="btn-publish" id="btn-publish">
-          🚀 Опубликовать
-        </button>
+        <button type="submit" class="btn-publish" id="btn-publish">🚀 Опубликовать</button>
       </form>
 
       <div id="create-status" class="create-status hidden"></div>
@@ -305,11 +298,8 @@
         <span class="modal-id" id="modal-id">#0</span>
         <button class="modal-close" id="modal-close">✕</button>
       </div>
-
       <h2 class="modal-title" id="modal-title">—</h2>
-
       <div class="modal-reward" id="modal-reward">— ₽</div>
-
       <div class="modal-status" id="modal-status">—</div>
 
       <div class="modal-section">
@@ -346,7 +336,7 @@
     </div>
   </div>
 
-  <!-- МОДАЛКА: ОТЗЫВЫ (динамическая) -->
+  <!-- МОДАЛКА: ОТЗЫВЫ -->
   <div id="reviews-modal" class="modal hidden">
     <div class="modal-backdrop" id="reviews-modal-backdrop"></div>
     <div class="modal-content">
