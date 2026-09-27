@@ -1960,7 +1960,7 @@ window.openWithdrawModal = () => {
           <button class="modal-close" id="withdraw-modal-close">✕</button>
         </div>
         <h2 class="modal-title">Вывести деньги</h2>
-        <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 500 ₽ • Комиссия 11%</p>
+        <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 500 ₽ • Комиссия 20%</p>
 
         <div class="form-group">
           <label class="form-label">💰 Сумма (₽)</label>
@@ -1973,7 +1973,7 @@ window.openWithdrawModal = () => {
             <strong id="wc-amount">0 ₽</strong>
           </div>
           <div class="withdraw-calc-row">
-             <span>Комиссия (11%):</span>
+             <span>Комиссия (20%):</span>
             <strong id="wc-commission" style="color:var(--warning);">0 ₽</strong>
           </div>
           <div class="withdraw-calc-row">
@@ -2006,7 +2006,7 @@ window.openWithdrawModal = () => {
       const amt = parseInt(document.getElementById('withdraw-amount').value, 10);
       const calc = document.getElementById('withdraw-calc');
       if (!amt || amt < 500) { calc.style.display = 'none'; return; }
-      const commission = Math.max(Math.round(amt * 0.11), 1); // ← хочешь 20% — 0.20
+      const commission = Math.max(Math.round(amt * 0.20), 1); // ← хочешь 20% — 0.20
       const payout = amt - commission;
       document.getElementById('wc-amount').textContent = amt.toLocaleString('ru') + ' ₽';
       document.getElementById('wc-commission').textContent = '-' + commission.toLocaleString('ru') + ' ₽';

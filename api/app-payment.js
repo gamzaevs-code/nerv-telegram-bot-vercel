@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: ЮKassa — создание платежа + вебхук + история + вывод
+// API: ЮKassa — создание платежа + вебхук + история + вывод (комиссия 20%)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -35,6 +35,9 @@ const isYooKassaIP = (ip) => {
   if (!ip) return false;
   return YOOKASSA_IPS.some(prefix => ip.startsWith(prefix));
 };
+
+// Комиссия на вывод — 20%
+const WITHDRAW_COMMISSION_RATE = 0.20;
 
 module.exports = async (req, res) => {
   // ═══════════ WEBHOOK (POST от ЮKassa) ═══════════
@@ -141,7 +144,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    // ═══ Создать запрос на вывод ═══
+    // ═══ Создать запрос на вывод (комиссия 20%) ═══
     if (action === 'withdraw_create') {
       const amount = parseInt(req.body.amount, 10);
       const card = String(req.body.card || '').trim();
@@ -155,6 +158,10 @@ module.exports = async (req, res) => {
       if (card.length < 8 || card.length > 100) {
         return res.status(400).json({ ok: false, error: 'Введите карту или телефон (8-100 символов)' });
       }
+
+      // Комиссия 20%
+      const commission = Math.max(Math.round(amount * WITHDRAW_COMMISSION_RATE), 1);
+      const payout = amount - commission;
 
       const uRes = await query(`SELECT balance FROM "User" WHERE id = $1`, [me.id]);
       if (uRes.rows[0].balance < amount) {
@@ -173,13 +180,13 @@ module.exports = async (req, res) => {
       await query(
         `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
          VALUES ($1,'withdraw_hold',$2,'pending',$3,NOW())`,
-        [me.id, -amount, `Запрос на вывод ${amount} ₽`]
+        [me.id, -amount, `Запрос на вывод ${amount} ₽ (комиссия ${commission} ₽)`]
       );
 
       const ins = await query(
-        `INSERT INTO "WithdrawalRequest" ("userId",amount,card,status,"createdAt")
-         VALUES ($1,$2,$3,'pending',NOW()) RETURNING id`,
-        [me.id, amount, card]
+        `INSERT INTO "WithdrawalRequest" ("userId",amount,commission,payout,card,status,"createdAt")
+         VALUES ($1,$2,$3,$4,$5,'pending',NOW()) RETURNING id`,
+        [me.id, amount, commission, payout, card]
       );
 
       // Уведомление админам
@@ -190,11 +197,13 @@ module.exports = async (req, res) => {
         const uname = uInfo.rows[0]?.name || 'Юзер';
         for (const a of admins.rows) {
           await notifyUser(a.id, {
-            message: `💸 Запрос на вывод ${amount} ₽ от @${uname}`,
+            message: `💸 Запрос на вывод ${amount} ₽ от @${uname} (к выплате: ${payout} ₽)`,
             pushText:
               `💸 *Запрос на вывод*\n\n` +
               `👤 @${uname}\n` +
               `💰 Сумма: *${amount} ₽*\n` +
+              `💸 Комиссия (20%): *${commission} ₽*\n` +
+              `✅ К выплате: *${payout} ₽*\n` +
               `💳 Карта: \`${card}\`\n\n` +
               `Открой \`/withdrawals\` чтобы обработать.`,
             type: 'system',
@@ -204,13 +213,18 @@ module.exports = async (req, res) => {
         }
       } catch (e) { console.error('notify admins:', e); }
 
-      return res.status(200).json({ ok: true, requestId: ins.rows[0].id });
+      return res.status(200).json({
+        ok: true,
+        requestId: ins.rows[0].id,
+        commission,
+        payout,
+      });
     }
 
     // ═══ История выводов ═══
     if (action === 'withdraw_history') {
       const r = await query(
-        `SELECT id, amount, card, status, "createdAt", "processedAt", "adminComment"
+        `SELECT id, amount, commission, payout, card, status, "createdAt", "processedAt", "adminComment"
          FROM "WithdrawalRequest" WHERE "userId" = $1
          ORDER BY "createdAt" DESC LIMIT 20`,
         [me.id]
@@ -220,6 +234,8 @@ module.exports = async (req, res) => {
         withdrawals: r.rows.map(w => ({
           id: w.id,
           amount: w.amount,
+          commission: w.commission || 0,
+          payout: w.payout || w.amount,
           card: w.card,
           status: w.status,
           createdAt: w.createdAt,
