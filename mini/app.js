@@ -1,5 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// NERV MINI APP — логика фронтенда (v8: поиск игроков)
+// NERV MINI APP — логика фронтенда (v9)
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 
 const tg = window.Telegram?.WebApp;
@@ -82,7 +82,7 @@ const showRoleSelect = (show) => {
   if (el) show ? el.classList.remove('hidden') : el.classList.add('hidden');
 };
 
-// ========== ПРОФИЛЬ (свой) ==========
+// ========== ПРОФИЛЬ ==========
 const loadProfile = async () => {
   try {
     const res = await fetch('/api/app-profile', {
@@ -148,16 +148,6 @@ const renderProfileRating = (p) => {
   cntEl.textContent = count > 0
     ? `${count} ${count === 1 ? 'отзыв' : count < 5 ? 'отзыва' : 'отзывов'}`
     : 'Пока нет отзывов';
-};
-
-const renderSparkline = (spark) => {
-  if (!spark) return;
-  const el = document.getElementById('profile-sparkline');
-  const max = spark.max || 1;
-  el.innerHTML = spark.data.map(v => {
-    const pct = v > 0 ? Math.max((v / max) * 100, 15) : 0;
-    return `<div class="spark-bar ${v === 0 ? 'zero' : ''}" style="height:${pct}%"></div>`;
-  }).join('');
 };
 
 const renderStreakCalendar = (days) => {
@@ -413,7 +403,7 @@ const closeTaskModal = () => {
   currentTaskId = null;
 };
 
-// ========== ПРОФИЛЬ ИГРОКА (публичный) ==========
+// ========== ПРОФИЛЬ ИГРОКА ==========
 window.openUserProfile = async (userId) => {
   if (!userId) return;
   tg?.HapticFeedback?.impactOccurred?.('light');
@@ -1105,7 +1095,7 @@ const openMetricModal = async (metric) => {
 
   if (!data) return;
 
-  // ⭐ Достижения — сразу в reviews-modal (не создаём metric-modal)
+  // ⭐ Достижения — сразу в reviews-modal
   if (metric === 'achievements' && data.achievements) {
     const reviewsModal = document.getElementById('reviews-modal');
     document.getElementById('reviews-modal-title').textContent = '🎖 ДОСТИЖЕНИЯ';
@@ -1194,42 +1184,6 @@ const openMetricModal = async (metric) => {
       <div class="streak-calendar">${data.days.map(d =>
         `<div class="streak-day ${d.active ? 'active' : ''}">${d.active ? '🔥' : ''}</div>`
       ).join('')}</div>`;
-  }
-
-  modal.classList.remove('hidden');
-};
-
-    // ⭐ Используем существующую рабочую модалку отзывов
-    closeMetricModal();
-
-    const reviewsModal = document.getElementById('reviews-modal');
-    document.getElementById('reviews-modal-title').textContent = '🎖 ДОСТИЖЕНИЯ';
-
-    const rBody = document.getElementById('reviews-modal-body');
-    const unlocked = data.achievements.filter(a => a.isUnlocked).length;
-    const total = data.achievements.length;
-
-    rBody.innerHTML = `
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;text-align:center;">
-        Открыто: <b>${unlocked}</b> из <b>${total}</b>
-      </p>
-      ${data.achievements.map(a => `
-        <div class="user-review-item" style="${a.isUnlocked ? '' : 'opacity:0.5;'}">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div style="font-size:28px;${a.isUnlocked ? '' : 'filter:grayscale(1);'}">${a.icon || '🏅'}</div>
-            <div style="flex:1;">
-              <div style="font-weight:700;font-size:14px;">${escapeHtml(a.name)}</div>
-              <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(a.description || '')}</div>
-              <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${a.reward} ₽</div>
-            </div>
-            ${a.isUnlocked ? '<span style="color:var(--success);font-size:20px;">✓</span>' : '<span style="color:var(--text-muted);font-size:18px;">🔒</span>'}
-          </div>
-        </div>
-      `).join('')}
-    `;
-
-    reviewsModal.classList.remove('hidden');
-    return;
   }
 
   modal.classList.remove('hidden');
@@ -1371,7 +1325,7 @@ const closeFavModal = () => {
   if (m) m.classList.add('hidden');
 };
 
-// ========== ПОПОЛНЕНИЕ БАЛАНСА (ЮKassa) ==========
+// ========== ПОПОЛНЕНИЕ ==========
 window.openTopupModal = () => {
   let modal = document.getElementById('topup-modal');
   if (!modal) {
@@ -1529,7 +1483,7 @@ const checkPendingPayment = async () => {
   } catch (e) { /* silent */ }
 };
 
-// ========== ПОИСК ИГРОКОВ ==========
+// ========== ПОИСК ==========
 const SEARCH_HISTORY_KEY = 'nerv_search_history';
 
 const getSearchHistory = () => {
@@ -1868,6 +1822,7 @@ document.addEventListener('click', (e) => {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById(`tab-${tabName}`)?.classList.add('active');
     if (tabName === 'top' && !document.querySelector('.top-row')) loadTop();
+    if (tabName === 'admin' && !document.querySelector('#admin-stats-container .card')) loadAdminStats();
     return;
   }
 
@@ -1882,10 +1837,9 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'btn-open-reviews') { tg?.HapticFeedback?.impactOccurred?.('light'); openMyReviews(); return; }
   if (e.target.id === 'btn-open-pending') { tg?.HapticFeedback?.impactOccurred?.('light'); openPendingReviews(); return; }
   if (e.target.id === 'reviews-modal-close' || e.target.id === 'reviews-modal-backdrop') { closeReviewsModal(); return; }
-  
+
   if (e.target.id === 'btn-tasks-history') { openTasksHistory(currentUser?.id); return; }
   if (e.target.id === 'btn-withdraw') { openWithdrawModal(); return; }
-  
   if (e.target.id === 'btn-topup') { openTopupModal(); return; }
 
   const roleCard = e.target.closest('.role-card');
@@ -1909,6 +1863,12 @@ document.addEventListener('click', (e) => {
     filter.classList.add('active');
     currentTopCategory = filter.dataset.topcat;
     loadTop();
+    return;
+  }
+  if (filter && filter.dataset.admperiod) {
+    document.querySelectorAll('.admin-period-filters .filter').forEach(f => f.classList.remove('active'));
+    filter.classList.add('active');
+    loadAdminStats(filter.dataset.admperiod);
     return;
   }
 
@@ -1973,7 +1933,7 @@ window.openWithdrawModal = () => {
             <strong id="wc-amount">0 ₽</strong>
           </div>
           <div class="withdraw-calc-row">
-             <span>Комиссия (20%):</span>
+            <span>Комиссия (20%):</span>
             <strong id="wc-commission" style="color:var(--warning);">0 ₽</strong>
           </div>
           <div class="withdraw-calc-row">
@@ -2006,7 +1966,7 @@ window.openWithdrawModal = () => {
       const amt = parseInt(document.getElementById('withdraw-amount').value, 10);
       const calc = document.getElementById('withdraw-calc');
       if (!amt || amt < 500) { calc.style.display = 'none'; return; }
-      const commission = Math.max(Math.round(amt * 0.20), 1); // ← хочешь 20% — 0.20
+      const commission = Math.max(Math.round(amt * 0.20), 1);
       const payout = amt - commission;
       document.getElementById('wc-amount').textContent = amt.toLocaleString('ru') + ' ₽';
       document.getElementById('wc-commission').textContent = '-' + commission.toLocaleString('ru') + ' ₽';
@@ -2062,6 +2022,8 @@ const createWithdrawRequest = async () => {
 
     document.getElementById('withdraw-amount').value = '';
     document.getElementById('withdraw-card').value = '';
+    const calcEl = document.getElementById('withdraw-calc');
+    if (calcEl) calcEl.style.display = 'none';
 
     loadProfile();
     loadWithdrawHistory();
@@ -2091,9 +2053,15 @@ const loadWithdrawHistory = async () => {
     }
     const st = { pending: '⏳', approved: '🟡', paid: '✅', rejected: '❌' };
     el.innerHTML = data.withdrawals.map(w => `
-      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(35,45,74,0.4);">
-        <span>${st[w.status] || '❓'} ${new Date(w.createdAt).toLocaleDateString('ru-RU')}</span>
-        <strong style="color:var(--accent);">${w.amount} ₽</strong>
+      <div style="padding:8px 0;font-size:12px;border-bottom:1px solid rgba(35,45,74,0.4);">
+        <div style="display:flex;justify-content:space-between;">
+          <span>${st[w.status] || '❓'} ${new Date(w.createdAt).toLocaleDateString('ru-RU')}</span>
+          <strong style="color:var(--accent);">${w.amount} ₽</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:2px;">
+          <span>К получению: ${w.payout || w.amount} ₽</span>
+          <span>Комиссия: ${w.commission || 0} ₽</span>
+        </div>
       </div>
     `).join('');
   } catch (e) {
@@ -2148,7 +2116,6 @@ window.openTasksHistory = (userId) => {
     });
   }
 
-  // Сбросить активный таб
   modal.querySelectorAll('.tasks-history-tab').forEach(b => {
     b.classList.toggle('active', b.dataset.thtab === 'player');
   });
@@ -2197,7 +2164,6 @@ const renderTasksHistory = (data) => {
 
   let html = '';
 
-  // Сводка для таба «Выполнил»
   if (data.tab === 'player' && data.stats) {
     html += `<div class="tasks-history-stats">
       <div class="th-stat">
@@ -2248,7 +2214,6 @@ const renderTasksHistory = (data) => {
 
   body.innerHTML = html;
 
-  // Клик → открыть задание
   body.querySelectorAll('.th-item').forEach(el => {
     el.addEventListener('click', () => {
       const taskId = parseInt(el.dataset.taskId, 10);
@@ -2256,4 +2221,123 @@ const renderTasksHistory = (data) => {
       setTimeout(() => openTaskModal(taskId), 150);
     });
   });
+};
+
+/* ═══════════════════════════════════════════════════════════
+   АДМИН-ДАШБОРД
+   ═══════════════════════════════════════════════════════════ */
+
+let currentAdminPeriod = 'week';
+
+const loadAdminStats = async (period) => {
+  period = period || currentAdminPeriod;
+  currentAdminPeriod = period;
+
+  const c = document.getElementById('admin-stats-container');
+  if (!c) return;
+  c.innerHTML = '<p class="placeholder">Загрузка...</p>';
+
+  try {
+    const res = await fetch('/api/app-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'admin_stats', period }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    renderAdminStats(data);
+  } catch (e) {
+    console.error('loadAdminStats:', e);
+    c.innerHTML = `<p class="empty-state">❌ ${escapeHtml(e.message)}</p>`;
+  }
+};
+
+const renderAdminStats = (s) => {
+  const c = document.getElementById('admin-stats-container');
+  if (!c) return;
+
+  const fmt = (n) => Number(n || 0).toLocaleString('ru');
+  const bar = s.sparkline.data.map(v => {
+    if (v === 0) return '▁';
+    const pct = v / s.sparkline.max;
+    if (pct < 0.2) return '▂';
+    if (pct < 0.4) return '▃';
+    if (pct < 0.6) return '▄';
+    if (pct < 0.8) return '▅';
+    if (pct < 1)   return '▆';
+    return '█';
+  }).join('');
+
+  let html = '';
+
+  html += `<div class="card">
+    <div class="card-label">💰 Доход платформы · ${escapeHtml(s.periodLabel)}</div>
+    <div class="admin-row"><span>Комиссия</span><strong>${fmt(s.income.commission)} ₽</strong></div>
+    <div class="admin-row"><span>Оборот сделок</span><strong>${fmt(s.income.gross)} ₽</strong></div>
+    <div class="admin-row"><span>Сделок</span><strong>${fmt(s.income.deals)}</strong></div>
+    <div class="admin-row"><span>Средний чек</span><strong>${fmt(s.avgCheck)} ₽</strong></div>
+  </div>`;
+
+  html += `<div class="card">
+    <div class="card-label">💳 Пополнения (ЮKassa)</div>
+    <div class="admin-row"><span>Сумма</span><strong>${fmt(s.deposits.sum)} ₽</strong></div>
+    <div class="admin-row"><span>Транзакций</span><strong>${fmt(s.deposits.cnt)}</strong></div>
+  </div>`;
+
+  html += `<div class="card">
+    <div class="card-label">📋 Задания</div>
+    <div class="admin-row"><span>Всего</span><strong>${fmt(s.tasks.total)}</strong></div>
+    <div class="admin-row"><span>✅ Выполнено</span><strong>${fmt(s.tasks.approved)}</strong></div>
+    <div class="admin-row"><span>❌ Отклонено</span><strong>${fmt(s.tasks.rejected)}</strong></div>
+    <div class="admin-row"><span>🟢 Открыто</span><strong>${fmt(s.tasks.open)}</strong></div>
+    <div class="admin-row"><span>🟡 Взято</span><strong>${fmt(s.tasks.taken)}</strong></div>
+    <div class="admin-row"><span>🗳 Голосование</span><strong>${fmt(s.tasks.voting)}</strong></div>
+    <div class="admin-row"><span>🎯 Конверсия</span><strong>${s.conversion}%</strong></div>
+  </div>`;
+
+  html += `<div class="card">
+    <div class="card-label">👥 Пользователи</div>
+    <div class="admin-row"><span>Всего</span><strong>${fmt(s.users.total)}</strong></div>
+    <div class="admin-row"><span>🎮 Игроки</span><strong>${fmt(s.users.players)}</strong></div>
+    <div class="admin-row"><span>👁 Зрители</span><strong>${fmt(s.users.viewers)}</strong></div>
+    <div class="admin-row"><span>🆕 За сутки</span><strong>${fmt(s.users.today)}</strong></div>
+    <div class="admin-row"><span>🆕 За неделю</span><strong>${fmt(s.users.week)}</strong></div>
+    <div class="admin-row"><span>🆕 За месяц</span><strong>${fmt(s.users.month)}</strong></div>
+  </div>`;
+
+  html += `<div class="card">
+    <div class="card-label">📈 Активность · 7 дней</div>
+    <div style="font-family:monospace;font-size:20px;color:var(--accent);text-align:center;padding:8px 0;letter-spacing:2px;">${bar}</div>
+    <div style="font-size:10px;color:var(--text-muted);text-align:center;">${s.sparkline.data.join(' · ')}</div>
+  </div>`;
+
+  if (s.topPlayers.length > 0) {
+    html += `<div class="card"><div class="card-label">🏆 Топ игроков</div>`;
+    const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
+    s.topPlayers.forEach((p, i) => {
+      html += `<div class="admin-row"><span>${medals[i]} ${escapeHtml(p.name)}</span><strong>${fmt(p.earned)} ₽</strong></div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (s.topCreators.length > 0) {
+    html += `<div class="card"><div class="card-label">💸 Топ создателей</div>`;
+    const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
+    s.topCreators.forEach((cr, i) => {
+      html += `<div class="admin-row"><span>${medals[i]} ${escapeHtml(cr.name)}</span><strong>${fmt(cr.spent)} ₽</strong></div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (s.topTasks.length > 0) {
+    html += `<div class="card"><div class="card-label">📌 Топ заданий</div>`;
+    const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
+    s.topTasks.forEach((t, i) => {
+      const title = t.title.length > 28 ? t.title.slice(0, 28) + '…' : t.title;
+      html += `<div class="admin-row"><span>${medals[i]} ${escapeHtml(title)}</span><strong>${fmt(t.reward)} ₽</strong></div>`;
+    });
+    html += `</div>`;
+  }
+
+  c.innerHTML = html;
 };
