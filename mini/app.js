@@ -70,7 +70,13 @@ const init = async () => {
   }
 };
 
-const hideLoadingScreen = () => document.getElementById('loading').classList.add('hidden');
+const hideLoadingScreen = () => {
+  const el = document.getElementById('loading');
+  if (!el) return;
+  el.classList.add('fade-out');
+  setTimeout(() => el.classList.add('hidden'), 700);
+};
+
 const showRoleSelect = (show) => {
   const el = document.getElementById('role-select');
   if (el) show ? el.classList.remove('hidden') : el.classList.add('hidden');
@@ -1791,8 +1797,13 @@ const escapeAttr = (str) => {
 
 const renderUser = (user) => {};
 const showApp = () => {
-  document.getElementById('loading').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
+  const loading = document.getElementById('loading');
+  const app = document.getElementById('app');
+  app.classList.remove('hidden');
+  setTimeout(() => {
+    loading.classList.add('fade-out');
+    setTimeout(() => loading.classList.add('hidden'), 700);
+  }, 600);
 };
 const showError = (msg) => {
   document.getElementById('loading').classList.add('hidden');
@@ -1912,11 +1923,26 @@ window.openWithdrawModal = () => {
           <button class="modal-close" id="withdraw-modal-close">✕</button>
         </div>
         <h2 class="modal-title">Вывести деньги</h2>
-        <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 500 ₽ • Без комиссии</p>
+        <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 500 ₽ • Комиссия 3%</p>
 
         <div class="form-group">
           <label class="form-label">💰 Сумма (₽)</label>
           <input type="number" id="withdraw-amount" class="form-input" placeholder="Минимум 500" min="500" max="100000">
+        </div>
+
+        <div id="withdraw-calc" class="withdraw-calc" style="display:none;">
+          <div class="withdraw-calc-row">
+            <span>Сумма:</span>
+            <strong id="wc-amount">0 ₽</strong>
+          </div>
+          <div class="withdraw-calc-row">
+            <span>Комиссия (3%):</span>
+            <strong id="wc-commission" style="color:var(--warning);">0 ₽</strong>
+          </div>
+          <div class="withdraw-calc-row">
+            <span>Получишь на карту:</span>
+            <strong id="wc-payout" style="color:var(--success);">0 ₽</strong>
+          </div>
         </div>
 
         <div class="form-group" style="margin-top:12px;">
@@ -1938,6 +1964,18 @@ window.openWithdrawModal = () => {
     document.getElementById('withdraw-modal-backdrop').addEventListener('click', closeWithdrawModal);
     document.getElementById('withdraw-modal-close').addEventListener('click', closeWithdrawModal);
     document.getElementById('withdraw-go').addEventListener('click', createWithdrawRequest);
+
+    document.getElementById('withdraw-amount').addEventListener('input', () => {
+      const amt = parseInt(document.getElementById('withdraw-amount').value, 10);
+      const calc = document.getElementById('withdraw-calc');
+      if (!amt || amt < 500) { calc.style.display = 'none'; return; }
+      const commission = Math.max(Math.round(amt * 0.03), 1);
+      const payout = amt - commission;
+      document.getElementById('wc-amount').textContent = amt.toLocaleString('ru') + ' ₽';
+      document.getElementById('wc-commission').textContent = '-' + commission.toLocaleString('ru') + ' ₽';
+      document.getElementById('wc-payout').textContent = payout.toLocaleString('ru') + ' ₽';
+      calc.style.display = 'block';
+    });
   }
   modal.classList.remove('hidden');
   loadWithdrawHistory();

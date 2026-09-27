@@ -536,25 +536,18 @@ module.exports = async (req, res) => {
     }
 
     if (metric === 'achievements') {
-      const all = await query(
-        `SELECT a.name, a.icon, a.description, a.reward, ua."unlockedAt"
-         FROM "Achievement" a
-         LEFT JOIN "UserAchievement" ua ON ua."achievementId" = a.id AND ua."userId" = $1
-         ORDER BY ua."unlockedAt" DESC NULLS LAST`,
-        [myId]
-      );
-      return res.status(200).json({
-        ok: true, metric: 'achievements', title: '🎖 Достижения',
-        achievements: all.rows.map(a => ({
-          name: a.name, icon: a.icon || '🏅', description: a.description,
-          reward: a.reward, isUnlocked: a.unlockedAt !== null, unlockedAt: a.unlockedAt,
-        })),
-      });
-    }
-
-    return res.status(400).json({ ok: false, error: 'Неизвестное действие' });
-  } catch (e) {
-    console.error('app-data error:', e);
-    return res.status(500).json({ ok: false, error: e.message });
-  }
-};
+  const all = await query(
+    `SELECT a.name, a.icon, a.description, a.reward, ua."unlockedAt"
+     FROM "Achievement" a
+     LEFT JOIN "UserAchievement" ua ON ua."achievementId" = a.id AND ua."userId" = $1
+     ORDER BY ua."unlockedAt" DESC NULLS LAST`,
+    [myId]
+  );
+  return res.status(200).json({
+    ok: true, metric: 'achievements', title: '🎖 Достижения',
+    achievements: all.rows.map(a => ({
+      name: a.name, icon: a.icon || '🏅', description: a.description,
+      reward: a.reward, isUnlocked: a.unlockedAt !== null, unlockedAt: a.unlockedAt,
+    })),
+  });
+}

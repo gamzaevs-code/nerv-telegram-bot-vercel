@@ -1940,3 +1940,19 @@ body {
   transform: scale(0.98);
   border-color: var(--accent);
 }
+
+.withdraw-calc {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 12px;
+}
+.withdraw-calc-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  font-size: 13px;
+}
+.withdraw-calc-row span { color: var(--text-muted); }
+.withdraw-calc-row strong { color: var(--text); }
