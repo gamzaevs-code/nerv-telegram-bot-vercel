@@ -1073,7 +1073,6 @@ const openMetricModal = async (metric) => {
     return;
   }
 
-  // Заголовки на случай если сервер не вернул title
   const METRIC_TITLES = {
     balance: '💰 Баланс',
     reputation: '⭐ Репутация',
@@ -1090,8 +1089,10 @@ const openMetricModal = async (metric) => {
     const rBody = document.getElementById('reviews-modal-body');
     if (!reviewsModal || !rBody) return;
     if (titleEl) titleEl.textContent = '🎖 ДОСТИЖЕНИЯ';
-    const list = safeArr(data.achievements);
+
+    const list = Array.isArray(data.achievements) ? data.achievements : [];
     const unlocked = list.filter(a => a.isUnlocked).length;
+
     rBody.innerHTML = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;text-align:center;">
         Открыто: <b>${unlocked}</b> из <b>${list.length}</b>
@@ -1105,7 +1106,7 @@ const openMetricModal = async (metric) => {
               <div style="flex:1;min-width:0;">
                 <div style="font-weight:700;font-size:14px;">${escapeHtml(a.name || 'Достижение')}</div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(a.description || '')}</div>
-                <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${safeNum(a.reward)} ₽</div>
+                <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${Number(a.reward) || 0} ₽</div>
               </div>
               ${a.isUnlocked ? '<span style="color:var(--success);font-size:20px;">✓</span>' : '<span style="color:var(--text-muted);font-size:18px;">🔒</span>'}
             </div>
@@ -1116,7 +1117,7 @@ const openMetricModal = async (metric) => {
     return;
   }
 
-  // Остальные — через metric-modal
+  // Остальные метрики — через metric-modal
   let modal = document.getElementById('metric-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -1136,21 +1137,22 @@ const openMetricModal = async (metric) => {
     document.getElementById('metric-modal-backdrop').addEventListener('click', closeMetricModal);
     document.getElementById('metric-modal-close').addEventListener('click', closeMetricModal);
   }
+
   const titleEl = document.getElementById('metric-title');
   if (titleEl) titleEl.textContent = title;
   const body = document.getElementById('metric-body');
   if (!body) return;
 
-  // 💰 Баланс / ⭐ Репутация — список строк
+  // 💰 Баланс / ⭐ Репутация
   if (metric === 'balance' || metric === 'reputation') {
-    const rows = safeArr(data.rows);
+    const rows = Array.isArray(data.rows) ? data.rows : [];
     body.innerHTML = `<h2 class="modal-title">${escapeHtml(title)}</h2>` +
       (rows.length === 0
         ? '<div style="color:var(--text-muted);text-align:center;padding:20px;">Нет данных</div>'
         : rows.map(r =>
           `<div class="modal-info-row" style="padding:12px 0;border-bottom:1px solid var(--border);">
             <span>${escapeHtml(r.label || '')}</span>
-            <strong>${escapeHtml(r.value || '—')}</strong>
+            <strong>${escapeHtml(String(r.value ?? '—'))}</strong>
           </div>`
         ).join('')
       );
@@ -1158,7 +1160,7 @@ const openMetricModal = async (metric) => {
 
   // 🏅 Топ-10
   if (metric === 'rank') {
-    const top = safeArr(data.top);
+    const top = Array.isArray(data.top) ? data.top : [];
     const myRank = data.myRank || '—';
     body.innerHTML = `<h2 class="modal-title">${escapeHtml(title)}</h2>
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Ты на #${myRank} месте</p>` +
@@ -1171,7 +1173,7 @@ const openMetricModal = async (metric) => {
             <div class="user-avatar-sm">${rankIcon}</div>
             <div class="user-info">
               <div class="user-name">@${escapeHtml(u.name || 'NERV')}</div>
-              <div class="user-sub">⭐ ${safeNum(u.reputation)} · Ур. ${safeNum(u.level) || 1}</div>
+              <div class="user-sub">⭐ ${Number(u.reputation) || 0} · Ур. ${Number(u.level) || 1}</div>
             </div>
           </div>`;
         }).join('')
@@ -1180,7 +1182,7 @@ const openMetricModal = async (metric) => {
 
   // 🔥 Streak
   if (metric === 'streak') {
-    const days = safeArr(data.days);
+    const days = Array.isArray(data.days) ? data.days : [];
     body.innerHTML = `<h2 class="modal-title">${escapeHtml(title)}</h2>
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Твоя активность за 7 дней</p>
       <div class="streak-calendar">${days.map(d =>
