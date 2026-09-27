@@ -1068,7 +1068,20 @@ const openMetricModal = async (metric) => {
     if (json.ok) data = json;
   } catch (e) { console.error(e); }
 
-  if (!data) return;
+  if (!data) {
+    tg?.showAlert?.('❌ Не удалось загрузить');
+    return;
+  }
+
+  // Заголовки на случай если сервер не вернул title
+  const METRIC_TITLES = {
+    balance: '💰 Баланс',
+    reputation: '⭐ Репутация',
+    rank: '🏅 Топ-10',
+    streak: '🔥 Streak',
+    achievements: '🎖 Достижения',
+  };
+  const title = data.title || METRIC_TITLES[metric] || '📊';
 
   // ⭐ ДОСТИЖЕНИЯ — через reviews-modal
   if (metric === 'achievements') {
@@ -1090,9 +1103,9 @@ const openMetricModal = async (metric) => {
             <div style="display:flex;align-items:center;gap:10px;">
               <div style="font-size:28px;${a.isUnlocked ? '' : 'filter:grayscale(1);'}">${a.icon || '🏅'}</div>
               <div style="flex:1;min-width:0;">
-                <div style="font-weight:700;font-size:14px;">${escapeHtml(a.name)}</div>
+                <div style="font-weight:700;font-size:14px;">${escapeHtml(a.name || 'Достижение')}</div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(a.description || '')}</div>
-                <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${a.reward || 0} ₽</div>
+                <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${safeNum(a.reward)} ₽</div>
               </div>
               ${a.isUnlocked ? '<span style="color:var(--success);font-size:20px;">✓</span>' : '<span style="color:var(--text-muted);font-size:18px;">🔒</span>'}
             </div>
@@ -1124,39 +1137,53 @@ const openMetricModal = async (metric) => {
     document.getElementById('metric-modal-close').addEventListener('click', closeMetricModal);
   }
   const titleEl = document.getElementById('metric-title');
-  if (titleEl) titleEl.textContent = data.title || '📊';
+  if (titleEl) titleEl.textContent = title;
   const body = document.getElementById('metric-body');
   if (!body) return;
 
+  // 💰 Баланс / ⭐ Репутация — список строк
   if (metric === 'balance' || metric === 'reputation') {
-    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>` + safeArr(data.rows).map(r =>
-      `<div class="modal-info-row" style="padding:12px 0;border-bottom:1px solid var(--border);">
-        <span>${r.label}</span>
-        <strong>${r.value}</strong>
-      </div>`
-    ).join('');
+    const rows = safeArr(data.rows);
+    body.innerHTML = `<h2 class="modal-title">${escapeHtml(title)}</h2>` +
+      (rows.length === 0
+        ? '<div style="color:var(--text-muted);text-align:center;padding:20px;">Нет данных</div>'
+        : rows.map(r =>
+          `<div class="modal-info-row" style="padding:12px 0;border-bottom:1px solid var(--border);">
+            <span>${escapeHtml(r.label || '')}</span>
+            <strong>${escapeHtml(r.value || '—')}</strong>
+          </div>`
+        ).join('')
+      );
   }
 
-  if (metric === 'rank' && data.top) {
-    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Ты на #${data.myRank} месте</p>` +
-      safeArr(data.top).map(u => {
-        const medals = ['🥇', '🥈', '🥉'];
-        const rankIcon = u.rank <= 3 ? medals[u.rank - 1] : `#${u.rank}`;
-        return `<div class="user-row">
-          <div class="user-avatar-sm">${rankIcon}</div>
-          <div class="user-info">
-            <div class="user-name">@${escapeHtml(u.name || 'NERV')}</div>
-            <div class="user-sub">⭐ ${u.reputation} · Ур. ${u.level}</div>
-          </div>
-        </div>`;
-      }).join('');
+  // 🏅 Топ-10
+  if (metric === 'rank') {
+    const top = safeArr(data.top);
+    const myRank = data.myRank || '—';
+    body.innerHTML = `<h2 class="modal-title">${escapeHtml(title)}</h2>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Ты на #${myRank} месте</p>` +
+      (top.length === 0
+        ? '<div style="color:var(--text-muted);text-align:center;padding:20px;">Пусто</div>'
+        : top.map(u => {
+          const medals = ['🥇', '🥈', '🥉'];
+          const rankIcon = u.rank <= 3 ? medals[u.rank - 1] : `#${u.rank}`;
+          return `<div class="user-row">
+            <div class="user-avatar-sm">${rankIcon}</div>
+            <div class="user-info">
+              <div class="user-name">@${escapeHtml(u.name || 'NERV')}</div>
+              <div class="user-sub">⭐ ${safeNum(u.reputation)} · Ур. ${safeNum(u.level) || 1}</div>
+            </div>
+          </div>`;
+        }).join('')
+      );
   }
 
-  if (metric === 'streak' && data.days) {
-    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>
+  // 🔥 Streak
+  if (metric === 'streak') {
+    const days = safeArr(data.days);
+    body.innerHTML = `<h2 class="modal-title">${escapeHtml(title)}</h2>
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Твоя активность за 7 дней</p>
-      <div class="streak-calendar">${safeArr(data.days).map(d =>
+      <div class="streak-calendar">${days.map(d =>
         `<div class="streak-day ${d.active ? 'active' : ''}">${d.active ? '🔥' : ''}</div>`
       ).join('')}</div>`;
   }
