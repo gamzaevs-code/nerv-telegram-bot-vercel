@@ -1,6 +1,5 @@
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 // API: объединённый эндпоинт
-// activity + notifications + reviews + online + favorites + metrics + user_profile + search + tasks_history
 // ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
@@ -48,7 +47,7 @@ const isOnline = (lastSeen) => {
 };
 
 module.exports = async (req, res) => {
-  // ⭐ GET: редирект на аватарку (для <img src="...">)
+  // GET: редирект на аватарку
   if (req.method === 'GET' && req.query && req.query.action === 'avatar') {
     try {
       const userId = parseInt(req.query.userId, 10);
@@ -262,7 +261,6 @@ module.exports = async (req, res) => {
       const targetId = parseInt(req.body.targetId, 10) || myId;
       const tab = String(req.body.tab || 'player');
 
-      // Проверка, что юзер существует
       const uRes = await query(`SELECT id FROM "User" WHERE id = $1 AND "isBanned" = false`, [targetId]);
       if (uRes.rows.length === 0) {
         return res.status(404).json({ ok: false, error: 'Юзер не найден' });
@@ -311,7 +309,6 @@ module.exports = async (req, res) => {
         }));
       }
 
-      // Сводка
       const statsRes = await query(
         `SELECT
            COUNT(*) FILTER (WHERE status='approved')::int AS approved,
@@ -347,9 +344,9 @@ module.exports = async (req, res) => {
                 u."loginStreak", u."isModerator", u."isBanned", u."roleChosen",
                 u.avatar, u.bio, u."createdAt",
                 u."ratingAvg", u."ratingCount",
-                u."completedTasksCount",
                 pres."lastSeen",
-                (SELECT COUNT(*)::int FROM "UserAchievement" WHERE "userId"=u.id) AS achievements
+                (SELECT COUNT(*)::int FROM "UserAchievement" WHERE "userId"=u.id) AS achievements,
+                (SELECT COUNT(*)::int FROM "Task" WHERE "playerId"=u.id AND status='approved') AS completed_tasks
          FROM "User" u
          LEFT JOIN "UserPresence" pres ON pres."userId" = u.id
          WHERE u.id = $1 AND u."isBanned" = false`,
@@ -358,7 +355,7 @@ module.exports = async (req, res) => {
       if (r.rows.length === 0) return res.status(404).json({ ok: false, error: 'Игрок не найден' });
 
       const u = r.rows[0];
-      const display = u.display;
+      const display = u.display || u.name || 'NERV';
       const initials = display.split(' ').slice(0, 2)
         .map(w => w[0] ? w[0].toUpperCase() : '').join('');
 
@@ -404,7 +401,7 @@ module.exports = async (req, res) => {
           isModerator: u.isModerator,
           isOnline: isOnline(u.lastSeen),
           memberSince: u.createdAt,
-          completedTasksCount: u.completedTasksCount || 0,
+          completedTasksCount: u.completed_tasks || 0,
           achievements: u.achievements,
           ratingAvg: Number(u.ratingAvg) || 0,
           ratingCount: u.ratingCount || 0,
@@ -536,18 +533,25 @@ module.exports = async (req, res) => {
     }
 
     if (metric === 'achievements') {
-  const all = await query(
-    `SELECT a.name, a.icon, a.description, a.reward, ua."unlockedAt"
-     FROM "Achievement" a
-     LEFT JOIN "UserAchievement" ua ON ua."achievementId" = a.id AND ua."userId" = $1
-     ORDER BY ua."unlockedAt" DESC NULLS LAST`,
-    [myId]
-  );
-  return res.status(200).json({
-    ok: true, metric: 'achievements', title: '🎖 Достижения',
-    achievements: all.rows.map(a => ({
-      name: a.name, icon: a.icon || '🏅', description: a.description,
-      reward: a.reward, isUnlocked: a.unlockedAt !== null, unlockedAt: a.unlockedAt,
-    })),
-  });
-}
+      const all = await query(
+        `SELECT a.name, a.icon, a.description, a.reward, ua."unlockedAt"
+         FROM "Achievement" a
+         LEFT JOIN "UserAchievement" ua ON ua."achievementId" = a.id AND ua."userId" = $1
+         ORDER BY ua."unlockedAt" DESC NULLS LAST`,
+        [myId]
+      );
+      return res.status(200).json({
+        ok: true, metric: 'achievements', title: '🎖 Достижения',
+        achievements: all.rows.map(a => ({
+          name: a.name, icon: a.icon || '🏅', description: a.description,
+          reward: a.reward, isUnlocked: a.unlockedAt !== null, unlockedAt: a.unlockedAt,
+        })),
+      });
+    }
+
+    return res.status(400).json({ ok: false, error: 'Неизвестное действие' });
+  } catch (e) {
+    console.error('app-data error:', e);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+};
