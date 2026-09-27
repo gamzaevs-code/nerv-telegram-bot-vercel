@@ -1,7 +1,4 @@
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// NERV MINI APP — логика фронтенда (v9)
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-
+// NERV MINI APP — v9 (safe)
 const tg = window.Telegram?.WebApp;
 let initData = '';
 let currentUser = null;
@@ -12,7 +9,11 @@ let unreadCount = 0;
 let chatTaskId = null;
 let chatPollTimer = null;
 
-// ========== ИНИЦИАЛИЗАЦИЯ ==========
+const safeNum = (v) => Number(v) || 0;
+const safeArr = (v) => Array.isArray(v) ? v : [];
+const safeStr = (v) => (v === null || v === undefined) ? '' : String(v);
+
+// ═══ INIT ═══
 const init = async () => {
   try {
     if (!tg) { showError('Открой через @nerv_05bot'); return; }
@@ -26,12 +27,9 @@ const init = async () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
-    if (!authRes.ok) {
-      const err = await authRes.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${authRes.status}`);
-    }
+    if (!authRes.ok) throw new Error(`HTTP ${authRes.status}`);
     const authData = await authRes.json();
-    if (!authData.ok) throw new Error(authData.error);
+    if (!authData.ok) throw new Error(authData.error || 'Auth error');
 
     currentUser = authData.user;
     renderUser(currentUser);
@@ -40,9 +38,11 @@ const init = async () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     });
+    if (!profileRes.ok) throw new Error(`Profile: HTTP ${profileRes.status}`);
     const profileData = await profileRes.json();
 
     if (profileData.ok && !profileData.profile.roleChosen) {
+      showApp();
       hideLoadingScreen();
       showRoleSelect(true);
       return;
@@ -50,18 +50,24 @@ const init = async () => {
 
     if (profileData.ok) {
       renderProfile(profileData.profile);
-      document.getElementById('create-balance').textContent =
-        `${Number(profileData.profile.balance).toLocaleString('ru')} ₽`;
+      const balEl = document.getElementById('create-balance');
+      if (balEl) balEl.textContent = `${safeNum(profileData.profile.balance).toLocaleString('ru')} ₽`;
       if (profileData.profile.onlineCount !== undefined) {
-        document.getElementById('online-count').textContent = profileData.profile.onlineCount;
-        document.getElementById('online-count-profile').textContent = profileData.profile.onlineCount;
+        const oc = document.getElementById('online-count');
+        const ocp = document.getElementById('online-count-profile');
+        if (oc) oc.textContent = profileData.profile.onlineCount;
+        if (ocp) ocp.textContent = profileData.profile.onlineCount;
       }
       renderProfileRating(profileData.profile);
     }
 
+    if (currentUser.role === 'admin') {
+      const admTab = document.getElementById('admin-tab');
+      if (admTab) admTab.classList.remove('hidden');
+    }
+
     await Promise.all([loadTasks(), loadTop(), loadActivity(), loadNotifications()]);
     showApp();
-
     checkPendingPayment();
     setInterval(loadNotifications, 60000);
   } catch (e) {
@@ -82,7 +88,7 @@ const showRoleSelect = (show) => {
   if (el) show ? el.classList.remove('hidden') : el.classList.add('hidden');
 };
 
-// ========== ПРОФИЛЬ ==========
+// ═══ PROFILE ═══
 const loadProfile = async () => {
   try {
     const res = await fetch('/api/app-profile', {
@@ -94,66 +100,74 @@ const loadProfile = async () => {
     if (data.ok) {
       renderProfile(data.profile);
       renderProfileRating(data.profile);
-      document.getElementById('create-balance').textContent =
-        `${Number(data.profile.balance).toLocaleString('ru')} ₽`;
+      const balEl = document.getElementById('create-balance');
+      if (balEl) balEl.textContent = `${safeNum(data.profile.balance).toLocaleString('ru')} ₽`;
     }
   } catch (e) { console.error('loadProfile:', e); }
 };
 
 const renderProfile = (p) => {
+  if (!p) return;
+  const ach = p.achievements || { unlocked: 0, total: 0, preview: [] };
+
   const avatarEl = document.getElementById('profile-avatar');
-  if (p.avatar) {
-    avatarEl.innerHTML = `<img src="/api/app-data?action=avatar&userId=${p.id}" alt="">`;
-  } else {
-    avatarEl.textContent = p.initials || '?';
+  if (avatarEl) {
+    if (p.avatar) avatarEl.innerHTML = `<img src="/api/app-data?action=avatar&userId=${p.id}" alt="">`;
+    else avatarEl.textContent = p.initials || '?';
   }
-  document.getElementById('profile-name').textContent = '@' + (p.displayName || p.name || 'NERV');
+  const nameEl = document.getElementById('profile-name');
+  if (nameEl) nameEl.textContent = '@' + (p.displayName || p.name || 'NERV');
 
   const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ' };
-  document.getElementById('profile-role').textContent = roleLabels[p.role] || p.role;
+  const roleEl = document.getElementById('profile-role');
+  if (roleEl) roleEl.textContent = roleLabels[p.role] || p.role || '—';
 
-  if (p.isVip) document.getElementById('profile-vip').style.display = '';
-  if (p.isModerator) document.getElementById('profile-mod').style.display = '';
+  if (p.isVip) { const e = document.getElementById('profile-vip'); if (e) e.style.display = ''; }
+  if (p.isModerator) { const e = document.getElementById('profile-mod'); if (e) e.style.display = ''; }
 
-  if (p.badge) {
+  if (p.badge && p.badge.name) {
     const b = document.getElementById('profile-badge');
-    b.style.display = 'flex';
-    b.textContent = p.badge.name.split(' ')[0] || '🎖';
+    if (b) { b.style.display = 'flex'; b.textContent = p.badge.name.split(' ')[0] || '🎖'; }
   }
 
-  document.getElementById('profile-level').textContent = p.level;
-  document.getElementById('profile-exp-progress').textContent = p.expProgress;
-  document.getElementById('profile-exp-needed').textContent = p.expNeeded;
-  document.getElementById('profile-exp-bar').style.width = `${p.expPercent}%`;
-  document.getElementById('profile-balance').textContent = `${Number(p.balance).toLocaleString('ru')} ₽`;
-  document.getElementById('profile-reputation').textContent = p.reputation;
-  document.getElementById('profile-rank').textContent = `#${p.rank}`;
-  document.getElementById('profile-streak').textContent = `${p.loginStreak} дн.`;
-  document.getElementById('profile-achievements').textContent = `${p.achievements.unlocked} / ${p.achievements.total}`;
-  document.getElementById('profile-ref-code').textContent = p.referralCode;
-  document.getElementById('favorites-count').textContent = '—';
+  const setText = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  const setWidth = (id, v) => { const e = document.getElementById(id); if (e) e.style.width = v; };
+
+  setText('profile-level', p.level || 1);
+  setText('profile-exp-progress', p.expProgress || 0);
+  setText('profile-exp-needed', p.expNeeded || 50);
+  setWidth('profile-exp-bar', `${p.expPercent || 0}%`);
+  setText('profile-balance', `${safeNum(p.balance).toLocaleString('ru')} ₽`);
+  setText('profile-reputation', p.reputation || 0);
+  setText('profile-rank', `#${p.rank || '—'}`);
+  setText('profile-streak', `${p.loginStreak || 0} дн.`);
+  setText('profile-achievements', `${ach.unlocked} / ${ach.total}`);
+  setText('profile-ref-code', p.referralCode || '—');
+  setText('favorites-count', '—');
 
   renderStreakCalendar(p.streakDays);
   renderBonusTimer(p.nextBonusHours);
-  renderAchPreview(p.achievements.preview);
+  renderAchPreview(ach.preview);
 };
 
 const renderProfileRating = (p) => {
+  if (!p) return;
   const valEl = document.getElementById('profile-rating-value');
   const cntEl = document.getElementById('profile-rating-count');
   if (!valEl) return;
   const avg = p.ratingAvg || 0;
   const count = p.ratingCount || 0;
   valEl.textContent = count > 0 ? `${avg} / 5` : '— / 5';
-  cntEl.textContent = count > 0
+  if (cntEl) cntEl.textContent = count > 0
     ? `${count} ${count === 1 ? 'отзыв' : count < 5 ? 'отзыва' : 'отзывов'}`
     : 'Пока нет отзывов';
 };
 
 const renderStreakCalendar = (days) => {
-  if (!days) return;
   const el = document.getElementById('streak-calendar');
-  el.innerHTML = days.map(active =>
+  if (!el) return;
+  const arr = safeArr(days);
+  el.innerHTML = arr.map(active =>
     `<div class="streak-day ${active ? 'active' : ''}">${active ? '🔥' : ''}</div>`
   ).join('');
 };
@@ -161,30 +175,34 @@ const renderStreakCalendar = (days) => {
 const renderBonusTimer = (hours) => {
   const el = document.getElementById('bonus-timer');
   const card = document.getElementById('bonus-timer-card');
-  if (hours <= 0) {
+  if (!el) return;
+  const h = safeNum(hours);
+  if (h <= 0) {
     el.textContent = 'можно забрать!';
     el.style.color = 'var(--success)';
     if (card) card.style.borderColor = 'var(--success)';
   } else {
-    const h = Math.floor(hours);
-    const m = Math.round((hours - h) * 60);
-    el.textContent = h > 0 ? `${h} ч ${m} мин` : `${m} мин`;
+    const hh = Math.floor(h);
+    const m = Math.round((h - hh) * 60);
+    el.textContent = hh > 0 ? `${hh} ч ${m} мин` : `${m} мин`;
     el.style.color = '';
     if (card) card.style.borderColor = '';
   }
 };
 
 const renderAchPreview = (preview) => {
-  if (!preview) return;
   const el = document.getElementById('ach-preview');
-  el.innerHTML = preview.map(a =>
-    `<div class="ach-badge ${a.isUnlocked ? 'unlocked' : 'locked'}">${a.icon}</div>`
+  if (!el) return;
+  const arr = safeArr(preview);
+  el.innerHTML = arr.map(a =>
+    `<div class="ach-badge ${a.isUnlocked ? 'unlocked' : 'locked'}">${a.icon || '🏅'}</div>`
   ).join('');
 };
 
-// ========== ЗАДАНИЯ ==========
+// ═══ TASKS ═══
 const loadTasks = async () => {
   const listEl = document.getElementById('tasks-list');
+  if (!listEl) return;
   listEl.innerHTML = '<p class="placeholder">Загрузка...</p>';
   try {
     const res = await fetch('/api/app-tasks', {
@@ -193,8 +211,8 @@ const loadTasks = async () => {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    renderTasks(data.tasks, data.userId, data.userRole);
+    if (!data.ok) throw new Error(data.error || 'Error');
+    renderTasks(safeArr(data.tasks), data.userId, data.userRole);
     loadActivity();
   } catch (e) {
     console.error('loadTasks:', e);
@@ -209,29 +227,29 @@ const statusLabels = {
 
 const renderTasks = (tasks, userId, userRole) => {
   const listEl = document.getElementById('tasks-list');
-  if (!tasks || tasks.length === 0) {
+  if (!listEl) return;
+  if (!tasks.length) {
     listEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📭</div><p>Нет заданий</p></div>`;
     return;
   }
   listEl.innerHTML = tasks.map(t => {
-    const statusClass = `status-${t.status}`;
     const statusLabel = statusLabels[t.status] || t.status;
     let votes = '';
     if (t.status === 'voting') {
-      votes = `<div class="votes-bar"><span class="votes-approve">👍 ${t.approve}</span><span class="votes-reject">👎 ${t.reject}</span></div>`;
+      votes = `<div class="votes-bar"><span class="votes-approve">👍 ${safeNum(t.approve)}</span><span class="votes-reject">👎 ${safeNum(t.reject)}</span></div>`;
     }
     const onlineDot = t.isCreatorOnline ? '<span class="online-dot-small"></span>' : '';
     return `
-      <div class="task-card ${statusClass}" data-task-id="${t.id}">
+      <div class="task-card status-${t.status}" data-task-id="${t.id}">
         <div class="task-header">
           <div class="task-title">${escapeHtml(t.title)}</div>
-          <div class="task-reward">${t.reward} ₽</div>
+          <div class="task-reward">${t.reward || 0} ₽</div>
         </div>
         ${t.description ? `<div class="task-desc">${escapeHtml(t.description)}</div>` : ''}
         <div class="task-footer">
           <span class="task-status ${t.status}">${statusLabel}</span>
           <div class="task-meta">
-            <span>${onlineDot}👤 @${escapeHtml(t.creatorName)}</span>
+            <span>${onlineDot}👤 @${escapeHtml(t.creatorName || 'nerv')}</span>
             ${t.hasVideo ? '<span>🎬</span>' : ''}
           </div>
         </div>
@@ -245,19 +263,23 @@ const renderTasks = (tasks, userId, userRole) => {
   });
 };
 
-// ========== МОДАЛКА ЗАДАНИЯ ==========
+// ═══ TASK MODAL ═══
 const openTaskModal = async (taskId) => {
   currentTaskId = taskId;
   const modal = document.getElementById('task-modal');
+  if (!modal) return;
   modal.classList.remove('hidden');
 
-  document.getElementById('modal-id').textContent = `#${taskId}`;
-  document.getElementById('modal-title').textContent = 'Загрузка...';
-  document.getElementById('modal-reward').textContent = '';
-  document.getElementById('modal-desc').textContent = '';
-  document.getElementById('modal-status').textContent = '';
-  document.getElementById('modal-actions').innerHTML = '<div class="modal-loading">Загрузка...</div>';
-  document.getElementById('modal-votes').style.display = 'none';
+  const setT = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  setT('modal-id', `#${taskId}`);
+  setT('modal-title', 'Загрузка...');
+  setT('modal-reward', '');
+  setT('modal-desc', '');
+  setT('modal-status', '');
+  const actionsEl = document.getElementById('modal-actions');
+  if (actionsEl) actionsEl.innerHTML = '<div class="modal-loading">Загрузка...</div>';
+  const votesEl = document.getElementById('modal-votes');
+  if (votesEl) votesEl.style.display = 'none';
 
   try {
     const res = await fetch('/api/app-task-action', {
@@ -268,42 +290,52 @@ const openTaskModal = async (taskId) => {
     if (!data.ok) throw new Error(data.error);
     renderTaskModal(data.task, data.userRole);
   } catch (e) {
-    document.getElementById('modal-title').textContent = '❌ Ошибка';
-    document.getElementById('modal-desc').textContent = e.message;
+    setT('modal-title', '❌ Ошибка');
+    setT('modal-desc', e.message);
   }
 };
 
 const renderTaskModal = (t, userRole) => {
-  document.getElementById('modal-id').textContent = `#${t.id}`;
-  document.getElementById('modal-title').textContent = t.title;
-  document.getElementById('modal-reward').textContent = `${t.reward} ₽`;
+  if (!t) return;
+  const setT = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  setT('modal-id', `#${t.id}`);
+  setT('modal-title', t.title);
+  setT('modal-reward', `${t.reward || 0} ₽`);
 
   const statusEl = document.getElementById('modal-status');
-  statusEl.textContent = statusLabels[t.status] || t.status;
-  statusEl.className = `modal-status ${t.status}`;
-
-  document.getElementById('modal-desc').textContent = t.description || '—';
-  document.getElementById('modal-creator').textContent = '@' + t.creatorName;
-
-  if (t.playerName) {
-    document.getElementById('modal-player-row').style.display = '';
-    document.getElementById('modal-player').textContent = '@' + t.playerName;
-  } else {
-    document.getElementById('modal-player-row').style.display = 'none';
+  if (statusEl) {
+    statusEl.textContent = statusLabels[t.status] || t.status;
+    statusEl.className = `modal-status ${t.status}`;
   }
 
-  if (t.status === 'voting') {
-    document.getElementById('modal-votes').style.display = '';
-    const pct = Math.min((t.approve / 5) * 100, 100);
-    document.getElementById('modal-votes-fill').style.width = `${pct}%`;
-    document.getElementById('modal-votes-count').textContent = `${t.approve} / 5`;
-    document.getElementById('modal-approve').textContent = t.approve;
-    document.getElementById('modal-reject').textContent = t.reject;
+  setT('modal-desc', t.description || '—');
+  setT('modal-creator', '@' + (t.creatorName || 'nerv'));
+
+  const playerRow = document.getElementById('modal-player-row');
+  if (t.playerName) {
+    if (playerRow) playerRow.style.display = '';
+    setT('modal-player', '@' + t.playerName);
   } else {
-    document.getElementById('modal-votes').style.display = 'none';
+    if (playerRow) playerRow.style.display = 'none';
+  }
+
+  const votesEl = document.getElementById('modal-votes');
+  if (t.status === 'voting') {
+    if (votesEl) votesEl.style.display = '';
+    const approve = safeNum(t.approve);
+    const reject = safeNum(t.reject);
+    const pct = Math.min((approve / 5) * 100, 100);
+    const fill = document.getElementById('modal-votes-fill');
+    if (fill) fill.style.width = `${pct}%`;
+    setT('modal-votes-count', `${approve} / 5`);
+    setT('modal-approve', approve);
+    setT('modal-reject', reject);
+  } else {
+    if (votesEl) votesEl.style.display = 'none';
   }
 
   const actionsEl = document.getElementById('modal-actions');
+  if (!actionsEl) return;
   const buttons = [];
   const canTake = t.status === 'open' && userRole === 'player' && !t.playerId;
   const isMyTask = t.isPlayer;
@@ -316,8 +348,7 @@ const renderTaskModal = (t, userRole) => {
 
   if (t.status === 'voting') {
     if (t.myVote) {
-      const voteLabel = t.myVote === 'approve' ? '👍 Ты проголосовал ЗА' : '👎 Ты проголосовал ПРОТИВ';
-      buttons.push(`<button class="btn-disabled" disabled>${voteLabel}</button>`);
+      buttons.push(`<button class="btn-disabled" disabled>${t.myVote === 'approve' ? '👍 Ты проголосовал ЗА' : '👎 Ты проголосовал ПРОТИВ'}</button>`);
     } else if (t.isPlayer || t.isCreator) {
       buttons.push(`<button class="btn-disabled" disabled>Своё задание нельзя голосовать</button>`);
     } else {
@@ -326,15 +357,13 @@ const renderTaskModal = (t, userRole) => {
     }
   }
 
-  if (canChat) {
-    buttons.push(`<button class="btn-chat" data-action="chat">💬 Написать ${t.isPlayer ? 'создателю' : 'игроку'}</button>`);
-  }
+  if (canChat) buttons.push(`<button class="btn-chat" data-action="chat">💬 Написать ${t.isPlayer ? 'создателю' : 'игроку'}</button>`);
 
   if (t.isCreator && t.status === 'approved' && t.playerId && !t.hasReview) {
     buttons.push(`<button class="btn-review-primary" data-action="leave_review">⭐ Оставить отзыв</button>`);
   }
 
-  if (buttons.length === 0) buttons.push(`<button class="btn-secondary" disabled>Действий нет</button>`);
+  if (!buttons.length) buttons.push(`<button class="btn-secondary" disabled>Действий нет</button>`);
 
   actionsEl.innerHTML = buttons.join('');
   actionsEl.querySelectorAll('button[data-action]').forEach(btn => {
@@ -369,7 +398,7 @@ const handleTaskAction = async (action) => {
         body: JSON.stringify({ initData, taskId: currentTaskId }),
       });
       const data = await res.json();
-      if (data.ok && data.task.playerId) {
+      if (data.ok && data.task?.playerId) {
         closeTaskModal();
         openRatingModal(currentTaskId, data.task.playerId, data.task.title);
       }
@@ -378,7 +407,7 @@ const handleTaskAction = async (action) => {
   }
 
   const actionsEl = document.getElementById('modal-actions');
-  actionsEl.innerHTML = '<div class="modal-loading">Выполняю...</div>';
+  if (actionsEl) actionsEl.innerHTML = '<div class="modal-loading">Выполняю...</div>';
 
   try {
     const res = await fetch('/api/app-task-action', {
@@ -393,17 +422,18 @@ const handleTaskAction = async (action) => {
     loadTasks();
     loadProfile();
   } catch (e) {
-    actionsEl.innerHTML = `<button class="btn-secondary" disabled>❌ ${escapeHtml(e.message)}</button>`;
+    if (actionsEl) actionsEl.innerHTML = `<button class="btn-secondary" disabled>❌ ${escapeHtml(e.message)}</button>`;
     tg?.HapticFeedback?.notificationOccurred?.('error');
   }
 };
 
 const closeTaskModal = () => {
-  document.getElementById('task-modal').classList.add('hidden');
+  const m = document.getElementById('task-modal');
+  if (m) m.classList.add('hidden');
   currentTaskId = null;
 };
 
-// ========== ПРОФИЛЬ ИГРОКА ==========
+// ═══ USER PROFILE ═══
 window.openUserProfile = async (userId) => {
   if (!userId) return;
   tg?.HapticFeedback?.impactOccurred?.('light');
@@ -420,9 +450,7 @@ window.openUserProfile = async (userId) => {
           <span class="modal-id">👤 ПРОФИЛЬ</span>
           <button class="modal-close" id="user-modal-close">✕</button>
         </div>
-        <div id="user-modal-body">
-          <div class="modal-loading">Загрузка...</div>
-        </div>
+        <div id="user-modal-body"><div class="modal-loading">Загрузка...</div></div>
       </div>
     `;
     document.body.appendChild(modal);
@@ -432,18 +460,19 @@ window.openUserProfile = async (userId) => {
 
   modal.classList.remove('hidden');
   const body = document.getElementById('user-modal-body');
-  body.innerHTML = '<div class="modal-loading">Загрузка...</div>';
+  if (body) body.innerHTML = '<div class="modal-loading">Загрузка...</div>';
 
   try {
     const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'user_profile', targetId: userId }),
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
+    if (!data.ok) throw new Error(data.error || 'Error');
     renderUserProfile(data.profile);
   } catch (e) {
-    body.innerHTML = `<div class="notif-empty">❌ ${escapeHtml(e.message)}</div>`;
+    if (body) body.innerHTML = `<div class="notif-empty">❌ ${escapeHtml(e.message)}</div>`;
   }
 };
 
@@ -453,28 +482,32 @@ window.closeUserModal = () => {
 };
 
 const renderUserProfile = (p) => {
+  if (!p) return;
   const body = document.getElementById('user-modal-body');
-  const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ', moderator: '👮 Модератор' };
-  const roleLabel = roleLabels[p.role] || p.role;
+  if (!body) return;
 
-  const expForNext = Math.pow(p.level, 2) * 50;
-  const expForCurrent = Math.pow(p.level - 1, 2) * 50;
-  const expProgress = p.experience - expForCurrent;
-  const expNeeded = expForNext - expForCurrent;
+  const roleLabels = { player: '🎮 Игрок', viewer: '👁 Зритель', admin: '⚙️ Админ' };
+  const roleLabel = roleLabels[p.role] || p.role || '—';
+
+  const expForNext = Math.pow(p.level || 1, 2) * 50;
+  const expForCurrent = Math.pow((p.level || 1) - 1, 2) * 50;
+  const expProgress = (p.experience || 0) - expForCurrent;
+  const expNeeded = expForNext - expForCurrent || 1;
   const expPercent = Math.min(Math.round((expProgress / expNeeded) * 100), 100);
 
-  const ratingStars = p.ratingCount > 0
-    ? `${'⭐'.repeat(Math.round(p.ratingAvg))} ${p.ratingAvg}`
+  const ratingStars = (p.ratingCount || 0) > 0
+    ? `${'⭐'.repeat(Math.round(p.ratingAvg || 0))} ${p.ratingAvg || 0}`
     : '— / 5';
 
-  const reviewsHtml = p.reviews && p.reviews.length > 0
-    ? p.reviews.map(r => `
+  const reviews = safeArr(p.reviews);
+  const reviewsHtml = reviews.length > 0
+    ? reviews.map(r => `
         <div class="user-review-item">
           <div class="user-review-head">
-            <span class="review-stars">${'⭐'.repeat(r.rating)}</span>
-            <b>@${escapeHtml(r.reviewerName)}</b>
+            <span class="review-stars">${'⭐'.repeat(r.rating || 0)}</span>
+            <b>@${escapeHtml(r.reviewerName || 'Аноним')}</b>
           </div>
-          <div class="review-task">📋 ${escapeHtml(r.taskTitle)}</div>
+          <div class="review-task">📋 ${escapeHtml(r.taskTitle || '—')}</div>
           ${r.comment ? `<div class="review-comment">${escapeHtml(r.comment)}</div>` : ''}
           <div class="review-date">${new Date(r.createdAt).toLocaleDateString('ru-RU')}</div>
         </div>
@@ -484,10 +517,10 @@ const renderUserProfile = (p) => {
   body.innerHTML = `
     <div class="user-profile-header">
       <div class="user-profile-avatar">
-        ${p.avatar ? `<img src="/api/app-data?action=avatar&userId=${p.id}" alt="">` : escapeHtml(p.initials)}
+        ${p.avatar ? `<img src="/api/app-data?action=avatar&userId=${p.id}" alt="">` : escapeHtml(p.initials || '?')}
         ${p.isOnline ? '<span class="user-online-dot"></span>' : ''}
       </div>
-      <h2 class="user-profile-name">@${escapeHtml(p.displayName)}</h2>
+      <h2 class="user-profile-name">@${escapeHtml(p.displayName || 'NERV')}</h2>
       ${p.bio ? `<div class="user-profile-bio">${escapeHtml(p.bio)}</div>` : ''}
       <div class="user-profile-tags">
         <span class="tag tag-role">${roleLabel}</span>
@@ -498,62 +531,29 @@ const renderUserProfile = (p) => {
 
     <div class="user-profile-rating">
       <div class="user-profile-rating-stars">${ratingStars}</div>
-      <div class="user-profile-rating-count">${p.ratingCount} ${p.ratingCount === 1 ? 'отзыв' : p.ratingCount < 5 ? 'отзыва' : 'отзывов'}</div>
+      <div class="user-profile-rating-count">${p.ratingCount || 0} ${p.ratingCount === 1 ? 'отзыв' : p.ratingCount < 5 ? 'отзыва' : 'отзывов'}</div>
     </div>
 
     <div class="user-profile-stats">
-      <div class="user-stat">
-        <div class="user-stat-icon">🎖</div>
-        <div class="user-stat-value">${p.level}</div>
-        <div class="user-stat-label">Уровень</div>
-      </div>
-      <div class="user-stat">
-        <div class="user-stat-icon">🏅</div>
-        <div class="user-stat-value">#${p.rank}</div>
-        <div class="user-stat-label">Место</div>
-      </div>
-      <div class="user-stat">
-        <div class="user-stat-icon">✅</div>
-        <div class="user-stat-value">${p.completedTasksCount}</div>
-        <div class="user-stat-label">Заданий</div>
-      </div>
-      <div class="user-stat">
-        <div class="user-stat-icon">🎖</div>
-        <div class="user-stat-value">${p.achievements}</div>
-        <div class="user-stat-label">Ачивок</div>
-      </div>
+      <div class="user-stat"><div class="user-stat-icon">🎖</div><div class="user-stat-value">${p.level || 1}</div><div class="user-stat-label">Уровень</div></div>
+      <div class="user-stat"><div class="user-stat-icon">🏅</div><div class="user-stat-value">#${p.rank || '—'}</div><div class="user-stat-label">Место</div></div>
+      <div class="user-stat"><div class="user-stat-icon">✅</div><div class="user-stat-value">${p.completedTasksCount || 0}</div><div class="user-stat-label">Заданий</div></div>
+      <div class="user-stat"><div class="user-stat-icon">🎖</div><div class="user-stat-value">${p.achievements || 0}</div><div class="user-stat-label">Ачивок</div></div>
     </div>
 
     <div class="user-profile-xp">
-      <div class="level-label">
-        <span>Опыт</span>
-        <span class="exp-info">${p.experience} XP</span>
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width:${expPercent}%"></div>
-      </div>
+      <div class="level-label"><span>Опыт</span><span class="exp-info">${p.experience || 0} XP</span></div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${expPercent}%"></div></div>
     </div>
 
     <div class="user-profile-meta">
-      <div class="user-meta-row">
-        <span>⭐ Репутация</span>
-        <strong>${p.reputation}</strong>
-      </div>
-      <div class="user-meta-row">
-        <span>🔥 Streak</span>
-        <strong>${p.loginStreak} дн.</strong>
-      </div>
-      <div class="user-meta-row">
-        <span>📅 В NERV с</span>
-        <strong>${new Date(p.memberSince).toLocaleDateString('ru-RU')}</strong>
-      </div>
-      ${p.isMe ? '' : `<div class="user-meta-row">
-        <span>💰 Баланс</span>
-        <strong>${Number(p.balance).toLocaleString('ru')} ₽</strong>
-      </div>`}
+      <div class="user-meta-row"><span>⭐ Репутация</span><strong>${p.reputation || 0}</strong></div>
+      <div class="user-meta-row"><span>🔥 Streak</span><strong>${p.loginStreak || 0} дн.</strong></div>
+      <div class="user-meta-row"><span>📅 В NERV с</span><strong>${new Date(p.memberSince).toLocaleDateString('ru-RU')}</strong></div>
+      ${p.isMe ? '' : `<div class="user-meta-row"><span>💰 Баланс</span><strong>${safeNum(p.balance).toLocaleString('ru')} ₽</strong></div>`}
     </div>
 
-    <button class="btn-history" onclick="openTasksHistory(${p.id})">📋 История заданий</button>
+    <button class="btn-history" data-open-tasks-history="${p.id}">📋 История заданий</button>
     ${p.isMe ? '' : `
       <button class="btn-favorite ${p.isFavorite ? 'active' : ''}" id="user-fav-btn">
         ${p.isFavorite ? '★ В избранном' : '☆ Добавить в избранное'}
@@ -589,10 +589,9 @@ const renderUserProfile = (p) => {
   }
 };
 
-// ========== ЧАТ ПО ЗАДАНИЮ ==========
+// ═══ CHAT ═══
 const openChatModal = async (taskId) => {
   chatTaskId = taskId;
-
   let modal = document.getElementById('chat-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -602,12 +601,10 @@ const openChatModal = async (taskId) => {
       <div class="modal-backdrop" id="chat-modal-backdrop"></div>
       <div class="modal-content chat-modal-content">
         <div class="modal-header">
-          <span class="modal-id">💬 ЧАТ ПО ЗАДАНИЮ #${taskId}</span>
+          <span class="modal-id">💬 ЧАТ</span>
           <button class="modal-close" id="chat-modal-close">✕</button>
         </div>
-        <div class="chat-messages" id="chat-messages">
-          <div class="modal-loading">Загрузка...</div>
-        </div>
+        <div class="chat-messages" id="chat-messages"></div>
         <div class="chat-input-wrap">
           <input type="text" id="chat-input" class="chat-input" placeholder="Сообщение..." maxlength="2000" autocomplete="off">
           <button class="chat-send" id="chat-send">➤</button>
@@ -617,15 +614,11 @@ const openChatModal = async (taskId) => {
     document.body.appendChild(modal);
     document.getElementById('chat-modal-backdrop').addEventListener('click', closeChatModal);
     document.getElementById('chat-modal-close').addEventListener('click', closeChatModal);
-    document.getElementById('chat-send').addEventListener('click', sendChatMessage);
-    document.getElementById('chat-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
-    });
   }
-
+  const titleEl = modal.querySelector('.modal-id');
+  if (titleEl) titleEl.textContent = `💬 ЧАТ ПО ЗАДАНИЮ #${taskId}`;
   modal.classList.remove('hidden');
   await loadChatHistory(taskId);
-
   if (chatPollTimer) clearInterval(chatPollTimer);
   chatPollTimer = setInterval(() => {
     if (chatTaskId) loadChatHistory(chatTaskId, true);
@@ -643,7 +636,6 @@ const loadChatHistory = async (taskId, silent = false) => {
   const msgEl = document.getElementById('chat-messages');
   if (!msgEl) return;
   if (!silent) msgEl.innerHTML = '<div class="modal-loading">Загрузка...</div>';
-
   try {
     const res = await fetch('/api/app-chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -651,7 +643,7 @@ const loadChatHistory = async (taskId, silent = false) => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-    renderChatMessages(data.messages);
+    renderChatMessages(safeArr(data.messages));
   } catch (e) {
     if (!silent) msgEl.innerHTML = `<div class="notif-empty">❌ ${escapeHtml(e.message)}</div>`;
   }
@@ -660,14 +652,14 @@ const loadChatHistory = async (taskId, silent = false) => {
 const renderChatMessages = (messages) => {
   const msgEl = document.getElementById('chat-messages');
   if (!msgEl) return;
-  if (!messages || messages.length === 0) {
+  if (!messages.length) {
     msgEl.innerHTML = '<div class="chat-empty">💬 Начни диалог первым</div>';
     return;
   }
   const wasAtBottom = msgEl.scrollTop + msgEl.clientHeight >= msgEl.scrollHeight - 30;
   msgEl.innerHTML = messages.map(m => `
     <div class="chat-msg ${m.isMine ? 'mine' : 'theirs'}">
-      ${!m.isMine ? `<div class="chat-msg-name">@${escapeHtml(m.fromName)}</div>` : ''}
+      ${!m.isMine ? `<div class="chat-msg-name">@${escapeHtml(m.fromName || 'nerv')}</div>` : ''}
       <div class="chat-msg-text">${escapeHtml(m.message)}</div>
       <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</div>
     </div>
@@ -680,10 +672,8 @@ const sendChatMessage = async () => {
   if (!input || !chatTaskId) return;
   const text = input.value.trim();
   if (!text) return;
-
   input.value = '';
   tg?.HapticFeedback?.impactOccurred?.('light');
-
   try {
     const res = await fetch('/api/app-chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -698,22 +688,25 @@ const sendChatMessage = async () => {
   }
 };
 
-// ========== ОТЗЫВЫ ==========
+// ═══ REVIEWS ═══
 const openReviewsModal = (title) => {
   const modal = document.getElementById('reviews-modal');
-  document.getElementById('reviews-modal-title').textContent = title;
-  document.getElementById('reviews-modal-body').innerHTML = '<div class="modal-loading">Загрузка...</div>';
-  modal.classList.remove('hidden');
+  const tEl = document.getElementById('reviews-modal-title');
+  const bEl = document.getElementById('reviews-modal-body');
+  if (tEl) tEl.textContent = title;
+  if (bEl) bEl.innerHTML = '<div class="modal-loading">Загрузка...</div>';
+  if (modal) modal.classList.remove('hidden');
 };
 
 const closeReviewsModal = () => {
-  document.getElementById('reviews-modal').classList.add('hidden');
+  const m = document.getElementById('reviews-modal');
+  if (m) m.classList.add('hidden');
 };
 
 const openMyReviews = async () => {
   openReviewsModal('⭐ МОИ ОТЗЫВЫ');
   const body = document.getElementById('reviews-modal-body');
-
+  if (!body) return;
   try {
     const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -721,16 +714,15 @@ const openMyReviews = async () => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
-    if (!data.reviews.length) {
-      body.innerHTML = '<div class="reviews-empty">⭐ Пока нет отзывов<br><small>Выполняй задания, чтобы получать оценки</small></div>';
+    const reviews = safeArr(data.reviews);
+    if (!reviews.length) {
+      body.innerHTML = '<div class="reviews-empty">⭐ Пока нет отзывов</div>';
       return;
     }
-
-    body.innerHTML = data.reviews.map(r => `
+    body.innerHTML = reviews.map(r => `
       <div class="review-item">
         <div class="review-head">
-          <span class="review-stars">${'⭐'.repeat(r.rating)}</span>
+          <span class="review-stars">${'⭐'.repeat(r.rating || 0)}</span>
           <b>@${escapeHtml(r.reviewer_name || 'Аноним')}</b>
         </div>
         <div class="review-task">📋 ${escapeHtml(r.task_title || '—')}</div>
@@ -746,7 +738,7 @@ const openMyReviews = async () => {
 const openPendingReviews = async () => {
   openReviewsModal('📝 ОСТАВИТЬ ОТЗЫВ');
   const body = document.getElementById('reviews-modal-body');
-
+  if (!body) return;
   try {
     const res = await fetch('/api/app-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -754,17 +746,16 @@ const openPendingReviews = async () => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
-    if (!data.pending.length) {
-      body.innerHTML = '<div class="reviews-empty">📝 Нет заданий, ожидающих отзыва<br><small>Отзыв можно оставить после одобрения задания</small></div>';
+    const pending = safeArr(data.pending);
+    if (!pending.length) {
+      body.innerHTML = '<div class="reviews-empty">📝 Нет заданий, ожидающих отзыва</div>';
       return;
     }
-
-    body.innerHTML = data.pending.map(p => `
+    body.innerHTML = pending.map(p => `
       <div class="pending-task">
         <div class="pending-task-title">${escapeHtml(p.title)}</div>
         <div class="pending-task-meta">👤 @${escapeHtml(p.player_name || 'Игрок')} • 💰 ${p.reward} ₽</div>
-        <button class="btn-review-primary" onclick="openRatingModal(${p.id}, ${p.playerId}, '${escapeAttr(p.title)}')">⭐ Оценить</button>
+        <button class="btn-review-primary open-review-btn" data-task-id="${p.id}" data-player-id="${p.playerId}" data-title="${escapeHtml(p.title)}">⭐ Оценить</button>
       </div>
     `).join('');
   } catch (e) {
@@ -775,7 +766,7 @@ const openPendingReviews = async () => {
 window.openRatingModal = (taskId, playerId, taskTitle) => {
   openReviewsModal('⭐ ОЦЕНКА');
   const body = document.getElementById('reviews-modal-body');
-
+  if (!body) return;
   body.innerHTML = `
     <div style="text-align:center;">
       <h2 class="modal-title" style="font-size:16px;margin-bottom:4px;">${escapeHtml(taskTitle)}</h2>
@@ -787,41 +778,29 @@ window.openRatingModal = (taskId, playerId, taskTitle) => {
       <button class="btn-review-primary" id="rating-submit" disabled>Отправить</button>
     </div>
   `;
-
   let selectedRating = 0;
   const stars = body.querySelectorAll('.rating-star');
   const submitBtn = document.getElementById('rating-submit');
-
   stars.forEach(star => {
     star.addEventListener('click', () => {
       selectedRating = parseInt(star.dataset.rating, 10);
-      stars.forEach(s => {
-        s.classList.toggle('active', parseInt(s.dataset.rating, 10) <= selectedRating);
-      });
+      stars.forEach(s => s.classList.toggle('active', parseInt(s.dataset.rating, 10) <= selectedRating));
       submitBtn.disabled = false;
       tg?.HapticFeedback?.impactOccurred?.('light');
     });
   });
-
   submitBtn.addEventListener('click', async () => {
     if (!selectedRating) return;
     const comment = document.getElementById('rating-comment').value.trim() || null;
-
     submitBtn.disabled = true;
     submitBtn.textContent = 'Отправляю...';
-
     try {
       const res = await fetch('/api/app-data', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          initData,
-          action: 'reviews_create',
-          taskId, playerId, rating: selectedRating, comment,
-        }),
+        body: JSON.stringify({ initData, action: 'reviews_create', taskId, playerId, rating: selectedRating, comment }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
-
       tg?.HapticFeedback?.notificationOccurred?.('success');
       closeReviewsModal();
       tg?.showAlert?.('⭐ Спасибо за отзыв!');
@@ -829,7 +808,6 @@ window.openRatingModal = (taskId, playerId, taskTitle) => {
     } catch (e) {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Отправить';
-      tg?.HapticFeedback?.notificationOccurred?.('error');
       tg?.showAlert?.(`❌ ${e.message}`);
     }
   });
@@ -837,6 +815,7 @@ window.openRatingModal = (taskId, playerId, taskTitle) => {
 
 const loadTopRated = async () => {
   const listEl = document.getElementById('top-list');
+  if (!listEl) return;
   listEl.innerHTML = '<p class="placeholder">Загрузка...</p>';
   try {
     const res = await fetch('/api/app-data', {
@@ -845,33 +824,32 @@ const loadTopRated = async () => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
-    document.getElementById('top-me').classList.add('hidden');
-
-    if (!data.top.length) {
+    const topMe = document.getElementById('top-me');
+    if (topMe) topMe.classList.add('hidden');
+    const top = safeArr(data.top);
+    if (!top.length) {
       listEl.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⭐</div><p>Пока нет рейтинга</p></div>';
       return;
     }
-
     const medals = ['🥇', '🥈', '🥉'];
-    listEl.innerHTML = data.top.map((u, i) => {
+    listEl.innerHTML = top.map((u, i) => {
       const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
       const rankDisplay = i < 3 ? medals[i] : `#${i + 1}`;
-      const initials = (u.name || '?').split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
+      const name = u.name || 'NERV';
+      const initials = name.split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
       const isMe = currentUser && u.id === currentUser.id;
       return `
         <div class="top-row top-row-clickable ${isMe ? 'is-me' : ''}" data-user-id="${u.id}">
           <div class="top-rank ${rankClass}">${rankDisplay}</div>
           <div class="top-avatar">${initials}</div>
           <div class="top-info">
-            <div class="top-name">@${escapeHtml(u.name)}</div>
-            <div class="top-sub">${u.ratingCount} ${u.ratingCount === 1 ? 'отзыв' : u.ratingCount < 5 ? 'отзыва' : 'отзывов'}</div>
+            <div class="top-name">@${escapeHtml(name)}</div>
+            <div class="top-sub">${u.ratingCount || 0} отзывов</div>
           </div>
-          <div class="top-score">⭐ ${u.ratingAvg}</div>
+          <div class="top-score">⭐ ${u.ratingAvg || 0}</div>
         </div>
       `;
     }).join('');
-
     listEl.querySelectorAll('.top-row-clickable').forEach(row => {
       row.addEventListener('click', () => openUserProfile(parseInt(row.dataset.userId, 10)));
     });
@@ -881,7 +859,7 @@ const loadTopRated = async () => {
   }
 };
 
-// ========== ЛЕНТА ==========
+// ═══ FEED ═══
 const loadActivity = async () => {
   const listEl = document.getElementById('activity-list');
   if (!listEl) return;
@@ -892,9 +870,8 @@ const loadActivity = async () => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-    renderActivity(data.feed);
+    renderActivity(safeArr(data.feed));
   } catch (e) {
-    console.error('loadActivity:', e);
     listEl.innerHTML = '<p class="activity-empty">Пока тихо...</p>';
   }
 };
@@ -902,27 +879,20 @@ const loadActivity = async () => {
 const renderActivity = (feed) => {
   const listEl = document.getElementById('activity-list');
   if (!listEl) return;
-  if (!feed || feed.length === 0) {
-    listEl.innerHTML = '<p class="activity-empty">Пока тихо...</p>';
-    return;
-  }
+  if (!feed.length) { listEl.innerHTML = '<p class="activity-empty">Пока тихо...</p>'; return; }
   listEl.innerHTML = feed.map(ev => `
     <div class="activity-item">
-      <span class="activity-icon">${ev.icon}</span>
-      <span class="activity-text">${ev.text}</span>
+      <span class="activity-icon">${ev.icon || '📌'}</span>
+      <span class="activity-text">${ev.text || ''}</span>
       ${ev.meta ? `<span class="activity-meta">${escapeHtml(ev.meta)}</span>` : ''}
-      <span class="activity-time">${ev.timeAgo}</span>
+      <span class="activity-time">${ev.timeAgo || ''}</span>
     </div>
   `).join('');
 };
 
-// ========== ТОП ==========
+// ═══ TOP ═══
 const loadTop = async () => {
-  if (currentTopCategory === 'rating') {
-    await loadTopRated();
-    return;
-  }
-
+  if (currentTopCategory === 'rating') { await loadTopRated(); return; }
   const listEl = document.getElementById('top-list');
   if (!listEl) return;
   listEl.innerHTML = '<p class="placeholder">Загрузка рейтинга...</p>';
@@ -933,7 +903,7 @@ const loadTop = async () => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-    renderTop(data.top, data.myRank, data.myScore, data.category);
+    renderTop(safeArr(data.top), data.myRank, data.myScore, data.category);
   } catch (e) {
     console.error('loadTop:', e);
     listEl.innerHTML = '<p class="empty-state">❌ Не удалось загрузить</p>';
@@ -943,12 +913,12 @@ const loadTop = async () => {
 const renderTop = (top, myRank, myScore, category) => {
   const listEl = document.getElementById('top-list');
   const meEl = document.getElementById('top-me');
-  if (!top || top.length === 0) {
+  if (!listEl) return;
+  if (!top.length) {
     listEl.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🏆</div><p>Пока нет игроков</p></div>';
-    meEl.classList.add('hidden');
+    if (meEl) meEl.classList.add('hidden');
     return;
   }
-
   const medals = ['🥇', '🥈', '🥉'];
   const categoryIcons = { reputation: '⭐', balance: '💰', completed: '✅' };
   const suffix = { reputation: '', balance: ' ₽', completed: '' }[category] || '';
@@ -956,17 +926,18 @@ const renderTop = (top, myRank, myScore, category) => {
   listEl.innerHTML = top.map(u => {
     const rankClass = u.rank === 1 ? 'gold' : u.rank === 2 ? 'silver' : u.rank === 3 ? 'bronze' : '';
     const rankDisplay = u.rank <= 3 ? medals[u.rank - 1] : `#${u.rank}`;
-    const initials = u.name.split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
-    const sub = category === 'completed' ? `Ур. ${u.level} · 🎖 ${u.achievements}` : `Ур. ${u.level}`;
+    const name = u.name || 'NERV';
+    const initials = name.split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
+    const sub = category === 'completed' ? `Ур. ${u.level || 1} · 🎖 ${u.achievements || 0}` : `Ур. ${u.level || 1}`;
     return `
       <div class="top-row top-row-clickable ${u.isMe ? 'is-me' : ''}" data-user-id="${u.id}">
         <div class="top-rank ${rankClass}">${rankDisplay}</div>
         <div class="top-avatar">${initials}</div>
         <div class="top-info">
-          <div class="top-name">@${escapeHtml(u.name)}</div>
+          <div class="top-name">@${escapeHtml(name)}</div>
           <div class="top-sub">${sub}</div>
         </div>
-        <div class="top-score">${categoryIcons[category]} ${u.score}${suffix}</div>
+        <div class="top-score">${categoryIcons[category] || '⭐'} ${u.score || 0}${suffix}</div>
       </div>
     `;
   }).join('');
@@ -975,19 +946,22 @@ const renderTop = (top, myRank, myScore, category) => {
     row.addEventListener('click', () => openUserProfile(parseInt(row.dataset.userId, 10)));
   });
 
+  if (!meEl) return;
   const inTop = top.some(u => u.isMe);
   if (!inTop && myRank) {
     meEl.classList.remove('hidden');
-    document.getElementById('top-me-rank').textContent = `#${myRank}`;
-    document.getElementById('top-me-name').textContent =
-      '@' + (currentUser?.displayName || currentUser?.name || 'Ты');
-    document.getElementById('top-me-score').textContent = `${categoryIcons[category]} ${myScore}${suffix}`;
+    const rEl = document.getElementById('top-me-rank');
+    const nEl = document.getElementById('top-me-name');
+    const sEl = document.getElementById('top-me-score');
+    if (rEl) rEl.textContent = `#${myRank}`;
+    if (nEl) nEl.textContent = '@' + (currentUser?.displayName || currentUser?.name || 'Ты');
+    if (sEl) sEl.textContent = `${categoryIcons[category] || '⭐'} ${myScore || 0}${suffix}`;
   } else {
     meEl.classList.add('hidden');
   }
 };
 
-// ========== УВЕДОМЛЕНИЯ ==========
+// ═══ NOTIFS ═══
 const loadNotifications = async () => {
   try {
     const res = await fetch('/api/app-data', {
@@ -996,7 +970,7 @@ const loadNotifications = async () => {
     });
     const data = await res.json();
     if (!data.ok) return;
-    unreadCount = data.unreadCount;
+    unreadCount = data.unreadCount || 0;
     updateNotifBadge();
   } catch (e) { console.error('loadNotifications:', e); }
 };
@@ -1020,7 +994,7 @@ const openNotifModal = async () => {
       body: JSON.stringify({ initData, action: 'notifications' }),
     });
     const data = await res.json();
-    if (data.ok) notifications = data.notifications;
+    if (data.ok) notifications = safeArr(data.notifications);
   } catch (e) { console.error(e); }
 
   let modal = document.getElementById('notif-modal');
@@ -1047,19 +1021,20 @@ const openNotifModal = async () => {
     document.getElementById('notif-modal-close').addEventListener('click', closeNotifModal);
     document.getElementById('notif-mark-read').addEventListener('click', markAllRead);
   }
-
   const listEl = document.getElementById('notif-list');
-  if (!notifications || notifications.length === 0) {
-    listEl.innerHTML = '<div class="notif-empty">📭 Уведомлений пока нет</div>';
-  } else {
-    listEl.innerHTML = notifications.map(n => `
-      <div class="notif-item ${n.isRead ? 'read' : 'unread'}">
-        <div class="notif-content">
-          <div class="notif-msg">${escapeHtml(n.message)}</div>
-          <div class="notif-time">${n.timeAgo}</div>
+  if (listEl) {
+    if (!notifications.length) {
+      listEl.innerHTML = '<div class="notif-empty">📭 Уведомлений пока нет</div>';
+    } else {
+      listEl.innerHTML = notifications.map(n => `
+        <div class="notif-item ${n.isRead ? 'read' : 'unread'}">
+          <div class="notif-content">
+            <div class="notif-msg">${escapeHtml(n.message)}</div>
+            <div class="notif-time">${n.timeAgo}</div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `).join('');
+    }
   }
   modal.classList.remove('hidden');
   setTimeout(markAllRead, 1500);
@@ -1081,7 +1056,7 @@ const markAllRead = async () => {
   } catch (e) { console.error('markAllRead:', e); }
 };
 
-// ========== МЕТРИКИ ==========
+// ═══ METRICS ═══
 const openMetricModal = async (metric) => {
   let data = null;
   try {
@@ -1095,41 +1070,40 @@ const openMetricModal = async (metric) => {
 
   if (!data) return;
 
-  // ⭐ Достижения — сразу в reviews-modal
-  if (metric === 'achievements' && data.achievements) {
+  // ⭐ ДОСТИЖЕНИЯ — через reviews-modal
+  if (metric === 'achievements') {
     const reviewsModal = document.getElementById('reviews-modal');
-    document.getElementById('reviews-modal-title').textContent = '🎖 ДОСТИЖЕНИЯ';
-
+    const titleEl = document.getElementById('reviews-modal-title');
     const rBody = document.getElementById('reviews-modal-body');
-    const unlocked = data.achievements.filter(a => a.isUnlocked).length;
-    const total = data.achievements.length;
-
+    if (!reviewsModal || !rBody) return;
+    if (titleEl) titleEl.textContent = '🎖 ДОСТИЖЕНИЯ';
+    const list = safeArr(data.achievements);
+    const unlocked = list.filter(a => a.isUnlocked).length;
     rBody.innerHTML = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;text-align:center;">
-        Открыто: <b>${unlocked}</b> из <b>${total}</b>
+        Открыто: <b>${unlocked}</b> из <b>${list.length}</b>
       </p>
-      ${data.achievements.length === 0
+      ${list.length === 0
         ? '<div class="reviews-empty">Достижений пока нет</div>'
-        : data.achievements.map(a => `
+        : list.map(a => `
           <div class="user-review-item" style="${a.isUnlocked ? '' : 'opacity:0.5;'}">
             <div style="display:flex;align-items:center;gap:10px;">
               <div style="font-size:28px;${a.isUnlocked ? '' : 'filter:grayscale(1);'}">${a.icon || '🏅'}</div>
               <div style="flex:1;min-width:0;">
                 <div style="font-weight:700;font-size:14px;">${escapeHtml(a.name)}</div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(a.description || '')}</div>
-                <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${a.reward} ₽</div>
+                <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${a.reward || 0} ₽</div>
               </div>
               ${a.isUnlocked ? '<span style="color:var(--success);font-size:20px;">✓</span>' : '<span style="color:var(--text-muted);font-size:18px;">🔒</span>'}
             </div>
           </div>
         `).join('')}
     `;
-
     reviewsModal.classList.remove('hidden');
     return;
   }
 
-  // Остальные метрики — через metric-modal
+  // Остальные — через metric-modal
   let modal = document.getElementById('metric-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -1149,12 +1123,13 @@ const openMetricModal = async (metric) => {
     document.getElementById('metric-modal-backdrop').addEventListener('click', closeMetricModal);
     document.getElementById('metric-modal-close').addEventListener('click', closeMetricModal);
   }
-
-  document.getElementById('metric-title').textContent = data.title || '📊';
+  const titleEl = document.getElementById('metric-title');
+  if (titleEl) titleEl.textContent = data.title || '📊';
   const body = document.getElementById('metric-body');
+  if (!body) return;
 
   if (metric === 'balance' || metric === 'reputation') {
-    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>` + data.rows.map(r =>
+    body.innerHTML = `<h2 class="modal-title">${data.title}</h2>` + safeArr(data.rows).map(r =>
       `<div class="modal-info-row" style="padding:12px 0;border-bottom:1px solid var(--border);">
         <span>${r.label}</span>
         <strong>${r.value}</strong>
@@ -1165,13 +1140,13 @@ const openMetricModal = async (metric) => {
   if (metric === 'rank' && data.top) {
     body.innerHTML = `<h2 class="modal-title">${data.title}</h2>
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Ты на #${data.myRank} месте</p>` +
-      data.top.map(u => {
+      safeArr(data.top).map(u => {
         const medals = ['🥇', '🥈', '🥉'];
         const rankIcon = u.rank <= 3 ? medals[u.rank - 1] : `#${u.rank}`;
         return `<div class="user-row">
           <div class="user-avatar-sm">${rankIcon}</div>
           <div class="user-info">
-            <div class="user-name">@${escapeHtml(u.name)}</div>
+            <div class="user-name">@${escapeHtml(u.name || 'NERV')}</div>
             <div class="user-sub">⭐ ${u.reputation} · Ур. ${u.level}</div>
           </div>
         </div>`;
@@ -1181,7 +1156,7 @@ const openMetricModal = async (metric) => {
   if (metric === 'streak' && data.days) {
     body.innerHTML = `<h2 class="modal-title">${data.title}</h2>
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Твоя активность за 7 дней</p>
-      <div class="streak-calendar">${data.days.map(d =>
+      <div class="streak-calendar">${safeArr(data.days).map(d =>
         `<div class="streak-day ${d.active ? 'active' : ''}">${d.active ? '🔥' : ''}</div>`
       ).join('')}</div>`;
   }
@@ -1194,7 +1169,7 @@ const closeMetricModal = () => {
   if (m) m.classList.add('hidden');
 };
 
-// ========== ОНЛАЙН / ИЗБРАННЫЕ ==========
+// ═══ ONLINE / FAVORITES ═══
 const openOnlineModal = async () => {
   let online = [];
   try {
@@ -1203,7 +1178,7 @@ const openOnlineModal = async () => {
       body: JSON.stringify({ initData, action: 'online' }),
     });
     const data = await res.json();
-    if (data.ok) online = data.online;
+    if (data.ok) online = safeArr(data.online);
   } catch (e) { console.error(e); }
 
   let modal = document.getElementById('online-modal');
@@ -1225,33 +1200,31 @@ const openOnlineModal = async () => {
     document.getElementById('online-modal-backdrop').addEventListener('click', closeOnlineModal);
     document.getElementById('online-modal-close').addEventListener('click', closeOnlineModal);
   }
-
   const body = document.getElementById('online-body');
-  if (!online || online.length === 0) {
-    body.innerHTML = '<div class="notif-empty">😴 Никого нет онлайн</div>';
-  } else {
-    body.innerHTML = online.map(u => `
-      <div class="user-row" data-user-id="${u.id}">
-        <div class="user-avatar-sm">
-          ${u.name.split(' ').slice(0,2).map(w=>w[0]?w[0].toUpperCase():'').join('')}
-          <div class="user-online-dot"></div>
-        </div>
-        <div class="user-info">
-          <div class="user-name">@${escapeHtml(u.name)}</div>
-          <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
-        </div>
-        <div class="user-action">›</div>
-      </div>
-    `).join('');
-
-    body.querySelectorAll('.user-row').forEach(row => {
-      row.addEventListener('click', () => {
-        closeOnlineModal();
-        openUserProfile(parseInt(row.dataset.userId, 10));
+  if (body) {
+    if (!online.length) {
+      body.innerHTML = '<div class="notif-empty">😴 Никого нет онлайн</div>';
+    } else {
+      body.innerHTML = online.map(u => {
+        const name = u.name || 'NERV';
+        const initials = name.split(' ').slice(0,2).map(w=>w[0]?w[0].toUpperCase():'').join('');
+        return `<div class="user-row" data-user-id="${u.id}">
+          <div class="user-avatar-sm">${initials}<div class="user-online-dot"></div></div>
+          <div class="user-info">
+            <div class="user-name">@${escapeHtml(name)}</div>
+            <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
+          </div>
+          <div class="user-action">›</div>
+        </div>`;
+      }).join('');
+      body.querySelectorAll('.user-row').forEach(row => {
+        row.addEventListener('click', () => {
+          closeOnlineModal();
+          openUserProfile(parseInt(row.dataset.userId, 10));
+        });
       });
-    });
+    }
   }
-
   modal.classList.remove('hidden');
 };
 
@@ -1268,7 +1241,7 @@ const openFavoritesModal = async () => {
       body: JSON.stringify({ initData, action: 'favorites' }),
     });
     const data = await res.json();
-    if (data.ok) favorites = data.favorites;
+    if (data.ok) favorites = safeArr(data.favorites);
   } catch (e) { console.error(e); }
 
   let modal = document.getElementById('fav-modal');
@@ -1290,33 +1263,31 @@ const openFavoritesModal = async () => {
     document.getElementById('fav-modal-backdrop').addEventListener('click', closeFavModal);
     document.getElementById('fav-modal-close').addEventListener('click', closeFavModal);
   }
-
   const body = document.getElementById('fav-body');
-  if (!favorites || favorites.length === 0) {
-    body.innerHTML = '<div class="notif-empty">📭 Избранных пока нет</div>';
-  } else {
-    body.innerHTML = favorites.map(u => `
-      <div class="user-row" data-user-id="${u.id}">
-        <div class="user-avatar-sm">
-          ${u.name.split(' ').slice(0,2).map(w=>w[0]?w[0].toUpperCase():'').join('')}
-          ${u.isOnline ? '<div class="user-online-dot"></div>' : ''}
-        </div>
-        <div class="user-info">
-          <div class="user-name">@${escapeHtml(u.name)}</div>
-          <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
-        </div>
-        <div class="user-action">›</div>
-      </div>
-    `).join('');
-
-    body.querySelectorAll('.user-row').forEach(row => {
-      row.addEventListener('click', () => {
-        closeFavModal();
-        openUserProfile(parseInt(row.dataset.userId, 10));
+  if (body) {
+    if (!favorites.length) {
+      body.innerHTML = '<div class="notif-empty">📭 Избранных пока нет</div>';
+    } else {
+      body.innerHTML = favorites.map(u => {
+        const name = u.name || 'NERV';
+        const initials = name.split(' ').slice(0,2).map(w=>w[0]?w[0].toUpperCase():'').join('');
+        return `<div class="user-row" data-user-id="${u.id}">
+          <div class="user-avatar-sm">${initials}${u.isOnline ? '<div class="user-online-dot"></div>' : ''}</div>
+          <div class="user-info">
+            <div class="user-name">@${escapeHtml(name)}</div>
+            <div class="user-sub">Ур. ${u.level} · ${u.role === 'player' ? '🎮' : '👁'}</div>
+          </div>
+          <div class="user-action">›</div>
+        </div>`;
+      }).join('');
+      body.querySelectorAll('.user-row').forEach(row => {
+        row.addEventListener('click', () => {
+          closeFavModal();
+          openUserProfile(parseInt(row.dataset.userId, 10));
+        });
       });
-    });
+    }
   }
-
   modal.classList.remove('hidden');
 };
 
@@ -1325,7 +1296,7 @@ const closeFavModal = () => {
   if (m) m.classList.add('hidden');
 };
 
-// ========== ПОПОЛНЕНИЕ ==========
+// ═══ TOPUP ═══
 window.openTopupModal = () => {
   let modal = document.getElementById('topup-modal');
   if (!modal) {
@@ -1341,18 +1312,12 @@ window.openTopupModal = () => {
         </div>
         <h2 class="modal-title">Пополнить баланс</h2>
         <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 100 ₽ • Оплата через ЮKassa</p>
-
         <div class="topup-presets">
-          ${[100, 300, 500, 1000, 3000].map(v => `
-            <button class="topup-preset" data-amount="${v}">${v} ₽</button>
-          `).join('')}
+          ${[100, 300, 500, 1000, 3000].map(v => `<button class="topup-preset" data-amount="${v}">${v} ₽</button>`).join('')}
         </div>
-
         <input type="number" id="topup-amount" class="form-input" placeholder="Своя сумма" min="100" max="100000" style="margin:12px 0;">
-
         <button class="btn-publish" id="topup-go">💳 Перейти к оплате</button>
         <div id="topup-status" class="create-status hidden"></div>
-
         <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:12px;">
           <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">📜 История пополнений</div>
           <div id="topup-history"></div>
@@ -1362,7 +1327,6 @@ window.openTopupModal = () => {
     document.body.appendChild(modal);
     document.getElementById('topup-modal-backdrop').addEventListener('click', closeTopupModal);
     document.getElementById('topup-modal-close').addEventListener('click', closeTopupModal);
-
     modal.querySelectorAll('.topup-preset').forEach(btn => {
       btn.addEventListener('click', () => {
         document.getElementById('topup-amount').value = btn.dataset.amount;
@@ -1370,10 +1334,8 @@ window.openTopupModal = () => {
         btn.classList.add('active');
       });
     });
-
     document.getElementById('topup-go').addEventListener('click', createTopupPayment);
   }
-
   modal.classList.remove('hidden');
   loadTopupHistory();
 };
@@ -1387,39 +1349,27 @@ const createTopupPayment = async () => {
   const amount = parseInt(document.getElementById('topup-amount').value, 10);
   const statusEl = document.getElementById('topup-status');
   const btn = document.getElementById('topup-go');
-
+  if (!statusEl || !btn) return;
   if (isNaN(amount) || amount < 100) {
     statusEl.textContent = '❌ Минимум 100 ₽';
     statusEl.className = 'create-status error';
     statusEl.classList.remove('hidden');
     return;
   }
-  if (amount > 100000) {
-    statusEl.textContent = '❌ Максимум 100 000 ₽';
-    statusEl.className = 'create-status error';
-    statusEl.classList.remove('hidden');
-    return;
-  }
-
   btn.disabled = true;
   btn.textContent = 'Создаю платёж...';
   statusEl.classList.add('hidden');
-
   try {
     const res = await fetch('/api/app-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'create', amount }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
     if (tg?.openLink) tg.openLink(data.confirmationUrl);
     else window.open(data.confirmationUrl, '_blank');
-
     localStorage.setItem('nerv_pending_payment', data.yookassaId);
-
-    statusEl.textContent = '⏳ Ожидаем оплату... Вернись сюда после оплаты.';
+    statusEl.textContent = '⏳ Ожидаем оплату...';
     statusEl.className = 'create-status loading';
     statusEl.classList.remove('hidden');
   } catch (e) {
@@ -1437,40 +1387,37 @@ const loadTopupHistory = async () => {
   if (!el) return;
   try {
     const res = await fetch('/api/app-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'history' }),
     });
     const data = await res.json();
-    if (!data.ok || !data.payments.length) {
+    if (!data.ok || !safeArr(data.payments).length) {
       el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Пока нет пополнений</div>';
       return;
     }
     const statusEmoji = { succeeded: '✅', pending: '⏳', canceled: '❌', waiting_for_capture: '🟡' };
-    el.innerHTML = data.payments.map(p => `
+    el.innerHTML = safeArr(data.payments).map(p => `
       <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(35,45,74,0.4);">
         <span>${statusEmoji[p.status] || '❓'} ${new Date(p.createdAt).toLocaleDateString('ru-RU')}</span>
         <strong style="color:var(--accent);">+${p.amount} ₽</strong>
       </div>
     `).join('');
-  } catch (e) {
-    el.innerHTML = '';
-  }
+  } catch (e) { el.innerHTML = ''; }
 };
 
-const checkPendingPayment = async () => {
+const checkPendingPayment = async (attempt = 0) => {
+  if (attempt > 60) return;
   const pending = localStorage.getItem('nerv_pending_payment');
   if (!pending) return;
   try {
     const res = await fetch('/api/app-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'check', yookassaId: pending }),
     });
     const data = await res.json();
     if (data.ok && data.status === 'succeeded') {
       tg?.HapticFeedback?.notificationOccurred?.('success');
-      tg?.showAlert?.('✅ Платёж прошёл! Баланс пополнен.');
+      tg?.showAlert?.('✅ Платёж прошёл!');
       localStorage.removeItem('nerv_pending_payment');
       loadProfile();
       setTimeout(loadProfile, 1500);
@@ -1478,12 +1425,12 @@ const checkPendingPayment = async () => {
     } else if (data.ok && data.status === 'canceled') {
       localStorage.removeItem('nerv_pending_payment');
     } else if (data.ok && data.status === 'pending') {
-      setTimeout(checkPendingPayment, 3000);
+      setTimeout(() => checkPendingPayment(attempt + 1), 3000);
     }
   } catch (e) { /* silent */ }
 };
 
-// ========== ПОИСК ==========
+// ═══ SEARCH ═══
 const SEARCH_HISTORY_KEY = 'nerv_search_history';
 
 const getSearchHistory = () => {
@@ -1492,7 +1439,7 @@ const getSearchHistory = () => {
 };
 
 const addToSearchHistory = (q) => {
-  q = q.trim();
+  q = (q || '').trim();
   if (!q) return;
   let h = getSearchHistory().filter(x => x.toLowerCase() !== q.toLowerCase());
   h.unshift(q);
@@ -1504,15 +1451,9 @@ const renderSearchHistory = () => {
   const el = document.getElementById('search-history');
   if (!el) return;
   const h = getSearchHistory();
-  if (h.length === 0) { el.innerHTML = ''; return; }
+  if (!h.length) { el.innerHTML = ''; return; }
   el.innerHTML = '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">История</div>' +
-    h.map(q => `<button class="search-chip" data-q="${escapeAttr(q)}">${escapeHtml(q)}</button>`).join('');
-  el.querySelectorAll('.search-chip').forEach(b => {
-    b.addEventListener('click', () => {
-      document.getElementById('search-input').value = b.dataset.q;
-      doSearch(b.dataset.q);
-    });
-  });
+    h.map(q => `<button class="search-chip" data-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`).join('');
 };
 
 window.openSearchModal = () => {
@@ -1537,20 +1478,14 @@ window.openSearchModal = () => {
     document.body.appendChild(modal);
     document.getElementById('search-modal-backdrop').addEventListener('click', closeSearchModal);
     document.getElementById('search-modal-close').addEventListener('click', closeSearchModal);
-
-    const input = document.getElementById('search-input');
-    let debounceTimer;
-    input.addEventListener('input', () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => doSearch(input.value), 400);
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); doSearch(input.value); }
-    });
   }
-  modal.classList.remove('hidden');
+  const input = document.getElementById('search-input');
+  if (input) input.value = '';
+  const results = document.getElementById('search-results');
+  if (results) results.innerHTML = '';
   renderSearchHistory();
-  setTimeout(() => document.getElementById('search-input').focus(), 150);
+  modal.classList.remove('hidden');
+  setTimeout(() => document.getElementById('search-input')?.focus(), 150);
 };
 
 window.closeSearchModal = () => {
@@ -1562,49 +1497,39 @@ const doSearch = async (q) => {
   q = (q || '').trim();
   const results = document.getElementById('search-results');
   if (!results) return;
-
   if (q.length < 2) {
     results.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:20px;">Введи минимум 2 символа</div>';
     return;
   }
-
   results.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">Поиск...</div>';
-
   try {
     const res = await fetch('/api/app-data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'search_users', query: q }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
-    if (!data.users.length) {
+    const users = safeArr(data.users);
+    if (!users.length) {
       results.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:20px;">Ничего не найдено по «${escapeHtml(q)}»</div>`;
       return;
     }
-
     addToSearchHistory(q);
-
-    results.innerHTML = data.users.map(u => {
-      const initials = (u.name || '?').split(' ').slice(0, 2)
-        .map(w => w[0] ? w[0].toUpperCase() : '').join('');
-      const rating = u.ratingCount > 0 ? `⭐ ${Number(u.ratingAvg).toFixed(1)}` : '⭐ —';
+    results.innerHTML = users.map(u => {
+      const name = u.name || 'NERV';
+      const initials = name.split(' ').slice(0, 2).map(w => w[0] ? w[0].toUpperCase() : '').join('');
+      const rating = (u.ratingCount || 0) > 0 ? `⭐ ${(u.ratingAvg || 0).toFixed(1)}` : '⭐ —';
       const roleIcon = u.role === 'player' ? '🎮' : u.role === 'viewer' ? '👁' : '⚙️';
       const meTag = u.isMe ? ' <span style="color:var(--accent);font-size:10px;">ТЫ</span>' : '';
       return `<div class="user-row" data-user-id="${u.id}">
-        <div class="user-avatar-sm">
-          ${initials}
-          ${u.isOnline ? '<div class="user-online-dot"></div>' : ''}
-        </div>
+        <div class="user-avatar-sm">${initials}${u.isOnline ? '<div class="user-online-dot"></div>' : ''}</div>
         <div class="user-info">
-          <div class="user-name">@${escapeHtml(u.name)}${meTag}</div>
-          <div class="user-sub">${roleIcon} Ур. ${u.level} · ${rating} · реп. ${u.reputation}</div>
+          <div class="user-name">@${escapeHtml(name)}${meTag}</div>
+          <div class="user-sub">${roleIcon} Ур. ${u.level || 1} · ${rating} · реп. ${u.reputation || 0}</div>
         </div>
         <div class="user-action">›</div>
       </div>`;
     }).join('');
-
     results.querySelectorAll('.user-row').forEach(row => {
       row.addEventListener('click', () => {
         const uid = parseInt(row.dataset.userId, 10);
@@ -1618,7 +1543,7 @@ const doSearch = async (q) => {
   }
 };
 
-// ========== СОЗДАНИЕ ЗАДАНИЯ ==========
+// ═══ CREATE FORM ═══
 const initCreateForm = () => {
   const form = document.getElementById('create-form');
   const titleInput = document.getElementById('create-title');
@@ -1629,7 +1554,6 @@ const initCreateForm = () => {
   const commissionPreview = document.getElementById('commission-preview');
   const statusEl = document.getElementById('create-status');
   const btnPublish = document.getElementById('btn-publish');
-
   if (!form) return;
 
   titleInput.addEventListener('input', () => { titleCount.textContent = titleInput.value.length; });
@@ -1643,18 +1567,14 @@ const initCreateForm = () => {
     e.preventDefault();
     statusEl.classList.add('hidden');
     statusEl.classList.remove('success', 'error', 'loading');
-
     const title = titleInput.value.trim();
     const description = descInput.value.trim();
     const reward = parseInt(rewardInput.value, 10);
-
     if (!title || title.length < 3) { showCreateStatus('❌ Название минимум 3 символа', 'error'); return; }
     if (!description || description.length < 5) { showCreateStatus('❌ Описание минимум 5 символов', 'error'); return; }
     if (isNaN(reward) || reward < 10) { showCreateStatus('❌ Минимальная награда 10 ₽', 'error'); return; }
-
     btnPublish.disabled = true;
-    showCreateStatus('🤖 Проверяю контент... Обычно 2-5 секунд', 'loading');
-
+    showCreateStatus('🤖 Проверяю контент...', 'loading');
     try {
       const res = await fetch('/api/app-create-task', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1662,15 +1582,12 @@ const initCreateForm = () => {
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
-
       tg?.HapticFeedback?.notificationOccurred?.('success');
-      showCreateStatus(`✅ Задание #${data.task.id} создано! Проверено AI.`, 'success');
-
+      showCreateStatus(`✅ Задание #${data.task.id} создано!`, 'success');
       form.reset();
       titleCount.textContent = '0';
       descCount.textContent = '0';
       commissionPreview.textContent = '0';
-
       setTimeout(() => { loadTasks(); loadProfile(); }, 500);
       setTimeout(() => { document.querySelector('.tab[data-tab="tasks"]')?.click(); }, 2000);
     } catch (err) {
@@ -1688,7 +1605,7 @@ const initCreateForm = () => {
   };
 };
 
-// ========== РОЛИ ==========
+// ═══ ROLE ═══
 const selectRole = async (role, fromModal = false) => {
   if (!fromModal) {
     document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
@@ -1696,7 +1613,6 @@ const selectRole = async (role, fromModal = false) => {
     if (card) card.classList.add('selected');
   }
   tg?.HapticFeedback?.impactOccurred?.('medium');
-
   try {
     const res = await fetch('/api/app-change-role', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1704,23 +1620,15 @@ const selectRole = async (role, fromModal = false) => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
     tg?.HapticFeedback?.notificationOccurred?.('success');
     if (fromModal) closeRoleModal();
     if (currentUser) currentUser.role = role;
     await loadProfile();
     await loadTasks();
-
-    if (!fromModal) {
-      showRoleSelect(false);
-      showApp();
-    } else {
-      tg?.showAlert?.(`✅ Роль изменена на «${data.roleLabel}»`);
-    }
+    if (!fromModal) { showRoleSelect(false); showApp(); }
+    else tg?.showAlert?.(`✅ Роль: ${data.roleLabel}`);
   } catch (e) {
-    console.error('selectRole error:', e);
     tg?.showAlert?.(`❌ ${e.message}`);
-    tg?.HapticFeedback?.notificationOccurred?.('error');
   }
 };
 
@@ -1745,24 +1653,17 @@ const openRoleModal = () => {
     document.getElementById('role-modal-backdrop').addEventListener('click', closeRoleModal);
     document.getElementById('role-modal-close').addEventListener('click', closeRoleModal);
   }
-
   const cardsEl = document.getElementById('role-modal-cards');
   const currentRole = currentUser?.role || 'viewer';
   cardsEl.innerHTML = `
     <div class="role-modal-card ${currentRole === 'player' ? 'current' : ''}" data-role="player">
       <div class="role-icon-sm">🎮</div>
-      <div class="role-info">
-        <div class="role-info-name">Игрок</div>
-        <div class="role-info-desc">Брать задания и получать награды</div>
-      </div>
+      <div class="role-info"><div class="role-info-name">Игрок</div><div class="role-info-desc">Брать задания</div></div>
       ${currentRole === 'player' ? '<span class="role-badge-current">СЕЙЧАС</span>' : ''}
     </div>
     <div class="role-modal-card ${currentRole === 'viewer' ? 'current' : ''}" data-role="viewer">
       <div class="role-icon-sm">👁</div>
-      <div class="role-info">
-        <div class="role-info-name">Зритель</div>
-        <div class="role-info-desc">Создавать задания и голосовать</div>
-      </div>
+      <div class="role-info"><div class="role-info-name">Зритель</div><div class="role-info-desc">Создавать задания</div></div>
       ${currentRole === 'viewer' ? '<span class="role-badge-current">СЕЙЧАС</span>' : ''}
     </div>
   `;
@@ -1774,36 +1675,37 @@ const closeRoleModal = () => {
   if (m) m.classList.add('hidden');
 };
 
-// ========== УТИЛИТЫ ==========
+// ═══ UTILS ═══
 const escapeHtml = (str) => {
-  if (!str) return '';
+  if (str === null || str === undefined) return '';
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-};
-
-const escapeAttr = (str) => {
-  if (!str) return '';
-  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
 };
 
 const renderUser = (user) => {};
 const showApp = () => {
   const loading = document.getElementById('loading');
   const app = document.getElementById('app');
-  app.classList.remove('hidden');
+  if (app) app.classList.remove('hidden');
   setTimeout(() => {
-    loading.classList.add('fade-out');
-    setTimeout(() => loading.classList.add('hidden'), 700);
+    if (loading) {
+      loading.classList.add('fade-out');
+      setTimeout(() => loading.classList.add('hidden'), 700);
+    }
   }, 600);
 };
 const showError = (msg) => {
-  document.getElementById('loading').classList.add('hidden');
-  document.getElementById('error').classList.remove('hidden');
-  document.getElementById('error-text').textContent = msg;
+  const l = document.getElementById('loading');
+  const e = document.getElementById('error');
+  const t = document.getElementById('error-text');
+  if (l) l.classList.add('hidden');
+  if (e) e.classList.remove('hidden');
+  if (t) t.textContent = msg;
 };
 
-// ========== СОБЫТИЯ ==========
+// ═══ GLOBAL CLICK ═══
 document.addEventListener('click', (e) => {
+  // bonus
   if (e.target.closest('#bonus-timer-card')) {
     tg?.HapticFeedback?.impactOccurred?.('light');
     const link = 'https://t.me/nerv_05bot?start=bonus';
@@ -1811,9 +1713,40 @@ document.addEventListener('click', (e) => {
     else window.open(link, '_blank');
     return;
   }
+  // search
   if (e.target.closest('#btn-search')) { openSearchModal(); return; }
+  // notifs
   if (e.target.closest('#btn-notif')) { tg?.HapticFeedback?.impactOccurred?.('light'); openNotifModal(); return; }
 
+  // search chip
+  const chip = e.target.closest('.search-chip');
+  if (chip) {
+    const input = document.getElementById('search-input');
+    if (input) input.value = chip.dataset.q || '';
+    doSearch(chip.dataset.q);
+    return;
+  }
+
+  // open review btn (pending)
+  const rBtn = e.target.closest('.open-review-btn');
+  if (rBtn) {
+    openRatingModal(
+      parseInt(rBtn.dataset.taskId, 10),
+      parseInt(rBtn.dataset.playerId, 10),
+      rBtn.dataset.title || ''
+    );
+    return;
+  }
+
+  // open tasks history
+  const thBtn = e.target.closest('[data-open-tasks-history]');
+  if (thBtn) { openTasksHistory(parseInt(thBtn.dataset.openTasksHistory, 10)); return; }
+  if (e.target.id === 'btn-tasks-history') { openTasksHistory(currentUser?.id); return; }
+
+  // chat send (global)
+  if (e.target.id === 'chat-send') { sendChatMessage(); return; }
+
+  // tabs
   const tab = e.target.closest('.tab');
   if (tab) {
     const tabName = tab.dataset.tab;
@@ -1833,20 +1766,15 @@ document.addEventListener('click', (e) => {
 
   if (e.target.id === 'online-card') { openOnlineModal(); return; }
   if (e.target.id === 'favorites-card') { openFavoritesModal(); return; }
-
-  if (e.target.id === 'btn-open-reviews') { tg?.HapticFeedback?.impactOccurred?.('light'); openMyReviews(); return; }
-  if (e.target.id === 'btn-open-pending') { tg?.HapticFeedback?.impactOccurred?.('light'); openPendingReviews(); return; }
+  if (e.target.id === 'btn-open-reviews') { openMyReviews(); return; }
+  if (e.target.id === 'btn-open-pending') { openPendingReviews(); return; }
   if (e.target.id === 'reviews-modal-close' || e.target.id === 'reviews-modal-backdrop') { closeReviewsModal(); return; }
-
-  if (e.target.id === 'btn-tasks-history') { openTasksHistory(currentUser?.id); return; }
   if (e.target.id === 'btn-withdraw') { openWithdrawModal(); return; }
   if (e.target.id === 'btn-topup') { openTopupModal(); return; }
 
   const roleCard = e.target.closest('.role-card');
   if (roleCard) { selectRole(roleCard.dataset.role); return; }
-
   if (e.target.id === 'btn-change-role') { openRoleModal(); return; }
-
   const roleModalCard = e.target.closest('.role-modal-card');
   if (roleModalCard) { selectRole(roleModalCard.dataset.role, true); return; }
 
@@ -1873,13 +1801,32 @@ document.addEventListener('click', (e) => {
   }
 
   if (e.target.id === 'btn-share-ref') {
-    const code = document.getElementById('profile-ref-code').textContent;
+    const code = document.getElementById('profile-ref-code')?.textContent || '';
     const url = `https://t.me/nerv_05bot?start=ref_${code}`;
-    const text = `🚀 Присоединяйся к NERV — зарабатывай на выполнении заданий!`;
+    const text = `🚀 Присоединяйся к NERV!`;
     if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`);
   }
 
   if (e.target.id === 'modal-close' || e.target.id === 'modal-backdrop') closeTaskModal();
+});
+
+// search input listeners (global)
+let searchDebounce = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'search-input') {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => doSearch(e.target.value), 400);
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.id === 'search-input' && e.key === 'Enter') {
+    e.preventDefault();
+    doSearch(e.target.value);
+  }
+  if (e.target.id === 'chat-input' && e.key === 'Enter') {
+    e.preventDefault();
+    sendChatMessage();
+  }
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1894,18 +1841,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-if (tg && tg.onEvent) {
-  tg.onEvent('viewportChanged', () => {
-    if (!document.hidden) {
-      checkPendingPayment();
-    }
-  });
-}
-
-/* ═══════════════════════════════════════════════════════════
-   ВЫВОД ДЕНЕГ
-   ═══════════════════════════════════════════════════════════ */
-
+// ═══ WITHDRAW ═══
 window.openWithdrawModal = () => {
   let modal = document.getElementById('withdraw-modal');
   if (!modal) {
@@ -1921,36 +1857,21 @@ window.openWithdrawModal = () => {
         </div>
         <h2 class="modal-title">Вывести деньги</h2>
         <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 500 ₽ • Комиссия 20%</p>
-
         <div class="form-group">
           <label class="form-label">💰 Сумма (₽)</label>
           <input type="number" id="withdraw-amount" class="form-input" placeholder="Минимум 500" min="500" max="100000">
         </div>
-
         <div id="withdraw-calc" class="withdraw-calc" style="display:none;">
-          <div class="withdraw-calc-row">
-            <span>Сумма:</span>
-            <strong id="wc-amount">0 ₽</strong>
-          </div>
-          <div class="withdraw-calc-row">
-            <span>Комиссия (20%):</span>
-            <strong id="wc-commission" style="color:var(--warning);">0 ₽</strong>
-          </div>
-          <div class="withdraw-calc-row">
-            <span>Получишь на карту:</span>
-            <strong id="wc-payout" style="color:var(--success);">0 ₽</strong>
-          </div>
+          <div class="withdraw-calc-row"><span>Сумма:</span><strong id="wc-amount">0 ₽</strong></div>
+          <div class="withdraw-calc-row"><span>Комиссия (20%):</span><strong id="wc-commission" style="color:var(--warning);">0 ₽</strong></div>
+          <div class="withdraw-calc-row"><span>Получишь:</span><strong id="wc-payout" style="color:var(--success);">0 ₽</strong></div>
         </div>
-
         <div class="form-group" style="margin-top:12px;">
           <label class="form-label">💳 Куда вывести</label>
           <input type="text" id="withdraw-card" class="form-input" placeholder="Номер карты или телефон" maxlength="100">
-          <div class="form-hint">Например: 2200 1234 5678 9010</div>
         </div>
-
         <button class="btn-publish" id="withdraw-go" style="margin-top:12px;">💸 Отправить заявку</button>
         <div id="withdraw-status" class="create-status hidden"></div>
-
         <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:12px;">
           <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">📜 История выводов</div>
           <div id="withdraw-history"></div>
@@ -1961,7 +1882,6 @@ window.openWithdrawModal = () => {
     document.getElementById('withdraw-modal-backdrop').addEventListener('click', closeWithdrawModal);
     document.getElementById('withdraw-modal-close').addEventListener('click', closeWithdrawModal);
     document.getElementById('withdraw-go').addEventListener('click', createWithdrawRequest);
-
     document.getElementById('withdraw-amount').addEventListener('input', () => {
       const amt = parseInt(document.getElementById('withdraw-amount').value, 10);
       const calc = document.getElementById('withdraw-calc');
@@ -1988,7 +1908,6 @@ const createWithdrawRequest = async () => {
   const card = document.getElementById('withdraw-card').value.trim();
   const statusEl = document.getElementById('withdraw-status');
   const btn = document.getElementById('withdraw-go');
-
   if (isNaN(amount) || amount < 500) {
     statusEl.textContent = '❌ Минимум 500 ₽';
     statusEl.className = 'create-status error';
@@ -2001,30 +1920,24 @@ const createWithdrawRequest = async () => {
     statusEl.classList.remove('hidden');
     return;
   }
-
   btn.disabled = true;
   btn.textContent = 'Отправляю...';
   statusEl.classList.add('hidden');
-
   try {
     const res = await fetch('/api/app-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'withdraw_create', amount, card }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-
     tg?.HapticFeedback?.notificationOccurred?.('success');
-    statusEl.textContent = '✅ Заявка отправлена! Ожидай выплату 1-3 рабочих дня.';
+    statusEl.textContent = `✅ Заявка отправлена! К выплате: ${data.payout} ₽`;
     statusEl.className = 'create-status success';
     statusEl.classList.remove('hidden');
-
     document.getElementById('withdraw-amount').value = '';
     document.getElementById('withdraw-card').value = '';
     const calcEl = document.getElementById('withdraw-calc');
     if (calcEl) calcEl.style.display = 'none';
-
     loadProfile();
     loadWithdrawHistory();
   } catch (e) {
@@ -2042,12 +1955,11 @@ const loadWithdrawHistory = async () => {
   if (!el) return;
   try {
     const res = await fetch('/api/app-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'withdraw_history' }),
     });
     const data = await res.json();
-    if (!data.ok || !data.withdrawals.length) {
+    if (!data.ok || !safeArr(data.withdrawals).length) {
       el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Пока нет выводов</div>';
       return;
     }
@@ -2064,15 +1976,10 @@ const loadWithdrawHistory = async () => {
         </div>
       </div>
     `).join('');
-  } catch (e) {
-    el.innerHTML = '';
-  }
+  } catch (e) { el.innerHTML = ''; }
 };
 
-/* ═══════════════════════════════════════════════════════════
-   ИСТОРИЯ ЗАДАНИЙ
-   ═══════════════════════════════════════════════════════════ */
-
+// ═══ TASKS HISTORY ═══
 let tasksHistoryUserId = null;
 let tasksHistoryTab = 'player';
 
@@ -2080,7 +1987,6 @@ window.openTasksHistory = (userId) => {
   tasksHistoryUserId = userId || currentUser?.id;
   tasksHistoryTab = 'player';
   tg?.HapticFeedback?.impactOccurred?.('light');
-
   let modal = document.getElementById('tasks-history-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -2097,15 +2003,12 @@ window.openTasksHistory = (userId) => {
           <button class="tasks-history-tab active" data-thtab="player">🎮 Выполнил</button>
           <button class="tasks-history-tab" data-thtab="creator">🎨 Создал</button>
         </div>
-        <div id="tasks-history-body">
-          <div class="modal-loading">Загрузка...</div>
-        </div>
+        <div id="tasks-history-body"><div class="modal-loading">Загрузка...</div></div>
       </div>
     `;
     document.body.appendChild(modal);
     document.getElementById('tasks-history-backdrop').addEventListener('click', closeTasksHistory);
     document.getElementById('tasks-history-close').addEventListener('click', closeTasksHistory);
-
     modal.querySelectorAll('.tasks-history-tab').forEach(btn => {
       btn.addEventListener('click', () => {
         modal.querySelectorAll('.tasks-history-tab').forEach(b => b.classList.remove('active'));
@@ -2115,11 +2018,9 @@ window.openTasksHistory = (userId) => {
       });
     });
   }
-
   modal.querySelectorAll('.tasks-history-tab').forEach(b => {
     b.classList.toggle('active', b.dataset.thtab === 'player');
   });
-
   modal.classList.remove('hidden');
   loadTasksHistory();
 };
@@ -2133,11 +2034,9 @@ const loadTasksHistory = async () => {
   const body = document.getElementById('tasks-history-body');
   if (!body) return;
   body.innerHTML = '<div class="modal-loading">Загрузка...</div>';
-
   try {
     const res = await fetch('/api/app-data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         initData,
         action: 'user_tasks',
@@ -2156,52 +2055,35 @@ const loadTasksHistory = async () => {
 const renderTasksHistory = (data) => {
   const body = document.getElementById('tasks-history-body');
   if (!body) return;
-
   const statusLabels = {
     open: '🟢 Открыто', taken: '🟡 Взято', voting: '🗳 Голосование',
     approved: '✅ Выполнено', rejected: '❌ Отклонено',
   };
-
   let html = '';
-
   if (data.tab === 'player' && data.stats) {
     html += `<div class="tasks-history-stats">
-      <div class="th-stat">
-        <div class="th-stat-icon">✅</div>
-        <div class="th-stat-value">${data.stats.approved}</div>
-        <div class="th-stat-label">Выполнено</div>
-      </div>
-      <div class="th-stat">
-        <div class="th-stat-icon">❌</div>
-        <div class="th-stat-value">${data.stats.rejected}</div>
-        <div class="th-stat-label">Отклонено</div>
-      </div>
-      <div class="th-stat">
-        <div class="th-stat-icon">💰</div>
-        <div class="th-stat-value">${Number(data.stats.totalEarned).toLocaleString('ru')}</div>
-        <div class="th-stat-label">Заработано ₽</div>
-      </div>
+      <div class="th-stat"><div class="th-stat-icon">✅</div><div class="th-stat-value">${data.stats.approved || 0}</div><div class="th-stat-label">Выполнено</div></div>
+      <div class="th-stat"><div class="th-stat-icon">❌</div><div class="th-stat-value">${data.stats.rejected || 0}</div><div class="th-stat-label">Отклонено</div></div>
+      <div class="th-stat"><div class="th-stat-icon">💰</div><div class="th-stat-value">${safeNum(data.stats.totalEarned).toLocaleString('ru')}</div><div class="th-stat-label">Заработано ₽</div></div>
     </div>`;
   }
-
-  if (!data.tasks || data.tasks.length === 0) {
-    html += `<div class="notif-empty">${data.tab === 'player' ? '📭 Ещё не выполнял задания' : '📭 Ещё не создавал задания'}</div>`;
+  const tasks = safeArr(data.tasks);
+  if (!tasks.length) {
+    html += `<div class="notif-empty">${data.tab === 'player' ? '📭 Ещё не выполнял' : '📭 Ещё не создавал'}</div>`;
     body.innerHTML = html;
     return;
   }
-
   html += '<div class="tasks-history-list">';
-  for (const t of data.tasks) {
+  for (const t of tasks) {
     const statusLabel = statusLabels[t.status] || t.status;
     const dateStr = new Date(t.date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
     const other = t.otherName
       ? (data.tab === 'player' ? `👤 @${escapeHtml(t.otherName)}` : `🎮 @${escapeHtml(t.otherName)}`)
-      : (data.tab === 'creator' ? '<span style="color:var(--text-muted);">Игрок не взят</span>' : '');
-
+      : (data.tab === 'creator' ? '<span style="color:var(--text-muted);">Не взят</span>' : '');
     html += `<div class="th-item" data-task-id="${t.id}">
       <div class="th-item-head">
         <div class="th-item-title">${escapeHtml(t.title)}</div>
-        <div class="th-item-reward">${t.reward} ₽</div>
+        <div class="th-item-reward">${t.reward || 0} ₽</div>
       </div>
       <div class="th-item-meta">
         <span class="th-status th-status-${t.status}">${statusLabel}</span>
@@ -2211,9 +2093,7 @@ const renderTasksHistory = (data) => {
     </div>`;
   }
   html += '</div>';
-
   body.innerHTML = html;
-
   body.querySelectorAll('.th-item').forEach(el => {
     el.addEventListener('click', () => {
       const taskId = parseInt(el.dataset.taskId, 10);
@@ -2223,31 +2103,24 @@ const renderTasksHistory = (data) => {
   });
 };
 
-/* ═══════════════════════════════════════════════════════════
-   АДМИН-ДАШБОРД
-   ═══════════════════════════════════════════════════════════ */
-
+// ═══ ADMIN ═══
 let currentAdminPeriod = 'week';
 
 const loadAdminStats = async (period) => {
   period = period || currentAdminPeriod;
   currentAdminPeriod = period;
-
   const c = document.getElementById('admin-stats-container');
   if (!c) return;
   c.innerHTML = '<p class="placeholder">Загрузка...</p>';
-
   try {
     const res = await fetch('/api/app-data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, action: 'admin_stats', period }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
     renderAdminStats(data);
   } catch (e) {
-    console.error('loadAdminStats:', e);
     c.innerHTML = `<p class="empty-state">❌ ${escapeHtml(e.message)}</p>`;
   }
 };
@@ -2255,89 +2128,26 @@ const loadAdminStats = async (period) => {
 const renderAdminStats = (s) => {
   const c = document.getElementById('admin-stats-container');
   if (!c) return;
-
-  const fmt = (n) => Number(n || 0).toLocaleString('ru');
-  const bar = s.sparkline.data.map(v => {
-    if (v === 0) return '▁';
-    const pct = v / s.sparkline.max;
-    if (pct < 0.2) return '▂';
-    if (pct < 0.4) return '▃';
-    if (pct < 0.6) return '▄';
-    if (pct < 0.8) return '▅';
-    if (pct < 1)   return '▆';
-    return '█';
-  }).join('');
-
+  const fmt = (n) => safeNum(n).toLocaleString('ru');
   let html = '';
-
-  html += `<div class="card">
-    <div class="card-label">💰 Доход платформы · ${escapeHtml(s.periodLabel)}</div>
-    <div class="admin-row"><span>Комиссия</span><strong>${fmt(s.income.commission)} ₽</strong></div>
-    <div class="admin-row"><span>Оборот сделок</span><strong>${fmt(s.income.gross)} ₽</strong></div>
-    <div class="admin-row"><span>Сделок</span><strong>${fmt(s.income.deals)}</strong></div>
-    <div class="admin-row"><span>Средний чек</span><strong>${fmt(s.avgCheck)} ₽</strong></div>
+  html += `<div class="card"><div class="card-label">💰 Доход · ${escapeHtml(s.periodLabel || '')}</div>
+    <div class="admin-row"><span>Комиссия</span><strong>${fmt(s.income?.commission)} ₽</strong></div>
+    <div class="admin-row"><span>Оборот</span><strong>${fmt(s.income?.gross)} ₽</strong></div>
+    <div class="admin-row"><span>Сделок</span><strong>${fmt(s.income?.deals)}</strong></div>
   </div>`;
-
-  html += `<div class="card">
-    <div class="card-label">💳 Пополнения (ЮKassa)</div>
-    <div class="admin-row"><span>Сумма</span><strong>${fmt(s.deposits.sum)} ₽</strong></div>
-    <div class="admin-row"><span>Транзакций</span><strong>${fmt(s.deposits.cnt)}</strong></div>
+  html += `<div class="card"><div class="card-label">💳 Пополнения</div>
+    <div class="admin-row"><span>Сумма</span><strong>${fmt(s.deposits?.sum)} ₽</strong></div>
+    <div class="admin-row"><span>Транзакций</span><strong>${fmt(s.deposits?.cnt)}</strong></div>
   </div>`;
-
-  html += `<div class="card">
-    <div class="card-label">📋 Задания</div>
-    <div class="admin-row"><span>Всего</span><strong>${fmt(s.tasks.total)}</strong></div>
-    <div class="admin-row"><span>✅ Выполнено</span><strong>${fmt(s.tasks.approved)}</strong></div>
-    <div class="admin-row"><span>❌ Отклонено</span><strong>${fmt(s.tasks.rejected)}</strong></div>
-    <div class="admin-row"><span>🟢 Открыто</span><strong>${fmt(s.tasks.open)}</strong></div>
-    <div class="admin-row"><span>🟡 Взято</span><strong>${fmt(s.tasks.taken)}</strong></div>
-    <div class="admin-row"><span>🗳 Голосование</span><strong>${fmt(s.tasks.voting)}</strong></div>
-    <div class="admin-row"><span>🎯 Конверсия</span><strong>${s.conversion}%</strong></div>
+  html += `<div class="card"><div class="card-label">📋 Задания</div>
+    <div class="admin-row"><span>Всего</span><strong>${fmt(s.tasks?.total)}</strong></div>
+    <div class="admin-row"><span>✅ Выполнено</span><strong>${fmt(s.tasks?.approved)}</strong></div>
+    <div class="admin-row"><span>❌ Отклонено</span><strong>${fmt(s.tasks?.rejected)}</strong></div>
   </div>`;
-
-  html += `<div class="card">
-    <div class="card-label">👥 Пользователи</div>
-    <div class="admin-row"><span>Всего</span><strong>${fmt(s.users.total)}</strong></div>
-    <div class="admin-row"><span>🎮 Игроки</span><strong>${fmt(s.users.players)}</strong></div>
-    <div class="admin-row"><span>👁 Зрители</span><strong>${fmt(s.users.viewers)}</strong></div>
-    <div class="admin-row"><span>🆕 За сутки</span><strong>${fmt(s.users.today)}</strong></div>
-    <div class="admin-row"><span>🆕 За неделю</span><strong>${fmt(s.users.week)}</strong></div>
-    <div class="admin-row"><span>🆕 За месяц</span><strong>${fmt(s.users.month)}</strong></div>
+  html += `<div class="card"><div class="card-label">👥 Юзеры</div>
+    <div class="admin-row"><span>Всего</span><strong>${fmt(s.users?.total)}</strong></div>
+    <div class="admin-row"><span>🎮 Игроки</span><strong>${fmt(s.users?.players)}</strong></div>
+    <div class="admin-row"><span>👁 Зрители</span><strong>${fmt(s.users?.viewers)}</strong></div>
   </div>`;
-
-  html += `<div class="card">
-    <div class="card-label">📈 Активность · 7 дней</div>
-    <div style="font-family:monospace;font-size:20px;color:var(--accent);text-align:center;padding:8px 0;letter-spacing:2px;">${bar}</div>
-    <div style="font-size:10px;color:var(--text-muted);text-align:center;">${s.sparkline.data.join(' · ')}</div>
-  </div>`;
-
-  if (s.topPlayers.length > 0) {
-    html += `<div class="card"><div class="card-label">🏆 Топ игроков</div>`;
-    const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
-    s.topPlayers.forEach((p, i) => {
-      html += `<div class="admin-row"><span>${medals[i]} ${escapeHtml(p.name)}</span><strong>${fmt(p.earned)} ₽</strong></div>`;
-    });
-    html += `</div>`;
-  }
-
-  if (s.topCreators.length > 0) {
-    html += `<div class="card"><div class="card-label">💸 Топ создателей</div>`;
-    const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
-    s.topCreators.forEach((cr, i) => {
-      html += `<div class="admin-row"><span>${medals[i]} ${escapeHtml(cr.name)}</span><strong>${fmt(cr.spent)} ₽</strong></div>`;
-    });
-    html += `</div>`;
-  }
-
-  if (s.topTasks.length > 0) {
-    html += `<div class="card"><div class="card-label">📌 Топ заданий</div>`;
-    const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
-    s.topTasks.forEach((t, i) => {
-      const title = t.title.length > 28 ? t.title.slice(0, 28) + '…' : t.title;
-      html += `<div class="admin-row"><span>${medals[i]} ${escapeHtml(title)}</span><strong>${fmt(t.reward)} ₽</strong></div>`;
-    });
-    html += `</div>`;
-  }
-
   c.innerHTML = html;
 };
