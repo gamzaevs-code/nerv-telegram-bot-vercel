@@ -1105,6 +1105,41 @@ const openMetricModal = async (metric) => {
 
   if (!data) return;
 
+  // ⭐ Достижения — сразу в reviews-modal (не создаём metric-modal)
+  if (metric === 'achievements' && data.achievements) {
+    const reviewsModal = document.getElementById('reviews-modal');
+    document.getElementById('reviews-modal-title').textContent = '🎖 ДОСТИЖЕНИЯ';
+
+    const rBody = document.getElementById('reviews-modal-body');
+    const unlocked = data.achievements.filter(a => a.isUnlocked).length;
+    const total = data.achievements.length;
+
+    rBody.innerHTML = `
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;text-align:center;">
+        Открыто: <b>${unlocked}</b> из <b>${total}</b>
+      </p>
+      ${data.achievements.length === 0
+        ? '<div class="reviews-empty">Достижений пока нет</div>'
+        : data.achievements.map(a => `
+          <div class="user-review-item" style="${a.isUnlocked ? '' : 'opacity:0.5;'}">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="font-size:28px;${a.isUnlocked ? '' : 'filter:grayscale(1);'}">${a.icon || '🏅'}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;font-size:14px;">${escapeHtml(a.name)}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(a.description || '')}</div>
+                <div style="font-size:11px;color:var(--accent);margin-top:4px;">🎁 ${a.reward} ₽</div>
+              </div>
+              ${a.isUnlocked ? '<span style="color:var(--success);font-size:20px;">✓</span>' : '<span style="color:var(--text-muted);font-size:18px;">🔒</span>'}
+            </div>
+          </div>
+        `).join('')}
+    `;
+
+    reviewsModal.classList.remove('hidden');
+    return;
+  }
+
+  // Остальные метрики — через metric-modal
   let modal = document.getElementById('metric-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -1161,7 +1196,9 @@ const openMetricModal = async (metric) => {
       ).join('')}</div>`;
   }
 
-        if (metric === 'achievements' && data.achievements) {
+  modal.classList.remove('hidden');
+};
+
     // ⭐ Используем существующую рабочую модалку отзывов
     closeMetricModal();
 
@@ -1923,7 +1960,7 @@ window.openWithdrawModal = () => {
           <button class="modal-close" id="withdraw-modal-close">✕</button>
         </div>
         <h2 class="modal-title">Вывести деньги</h2>
-        <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 500 ₽ • Комиссия 3%</p>
+        <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">Минимум 500 ₽ • Комиссия 11%</p>
 
         <div class="form-group">
           <label class="form-label">💰 Сумма (₽)</label>
@@ -1936,7 +1973,7 @@ window.openWithdrawModal = () => {
             <strong id="wc-amount">0 ₽</strong>
           </div>
           <div class="withdraw-calc-row">
-            <span>Комиссия (3%):</span>
+             <span>Комиссия (11%):</span>
             <strong id="wc-commission" style="color:var(--warning);">0 ₽</strong>
           </div>
           <div class="withdraw-calc-row">
@@ -1969,7 +2006,7 @@ window.openWithdrawModal = () => {
       const amt = parseInt(document.getElementById('withdraw-amount').value, 10);
       const calc = document.getElementById('withdraw-calc');
       if (!amt || amt < 500) { calc.style.display = 'none'; return; }
-      const commission = Math.max(Math.round(amt * 0.03), 1);
+      const commission = Math.max(Math.round(amt * 0.11), 1); // ← хочешь 20% — 0.20
       const payout = amt - commission;
       document.getElementById('wc-amount').textContent = amt.toLocaleString('ru') + ' ₽';
       document.getElementById('wc-commission').textContent = '-' + commission.toLocaleString('ru') + ' ₽';
