@@ -1,6 +1,6 @@
-/* ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-   NERV MINI APP — КИБЕРПАНК-СТИЛЬ
-   ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬ */
+﻿/* в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+   NERV MINI APP вЂ” РљРР‘Р•Р РџРђРќРљ-РЎРўРР›Р¬
+   в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬ */
 
 :root {
   --bg: #0a0e1a;
@@ -35,7 +35,7 @@ body {
   padding-bottom: 40px;
 }
 
-/* ▬▬▬▬▬ LOADING ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ LOADING в–¬в–¬в–¬в–¬в–¬ */
 .loading {
   display: flex;
   flex-direction: column;
@@ -56,6 +56,10 @@ body {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes slideUp { 
+  from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+  to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
 
 .loading p {
   color: var(--text-muted);
@@ -64,7 +68,7 @@ body {
   text-transform: uppercase;
 }
 
-/* ▬▬▬▬▬ ERROR ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ ERROR в–¬в–¬в–¬в–¬в–¬ */
 .error {
   display: flex;
   flex-direction: column;
@@ -91,9 +95,9 @@ body {
 
 .hidden { display: none !important; }
 
-#app { max-width: 480px; margin: 0 auto; padding: 0 12px; }
+#app { max-width: 480px; margin: 0 auto; padding: 0 12px; height: 100vh; overflow-y: auto; -webkit-user-select: none; user-select: none; }
 
-/* ▬▬▬▬▬ HEADER ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ HEADER в–¬в–¬в–¬в–¬в–¬ */
 .app-header { padding: 16px 0; margin-bottom: 8px; }
 .header-line {
   display: flex;
@@ -113,6 +117,12 @@ body {
   align-items: center;
   gap: 8px;
 }
+
+@media (max-width: 360px) {
+   .header-right { gap: 4px; }
+   .online-pill { padding: 4px 8px; font-size: 11px; }
+   .btn-notif { font-size: 16px; }
+ }
 
 .online-pill {
   background: var(--bg-card);
@@ -191,7 +201,7 @@ body {
 }
 .notif-badge.hidden { display: none; }
 
-/* ▬▬▬▬▬ NAV TABS ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ NAV TABS в–¬в–¬в–¬в–¬в–¬ */
 .nav-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -238,7 +248,7 @@ body {
   border-radius: var(--radius);
 }
 
-/* ▬▬▬▬▬ CARDS ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ CARDS в–¬в–¬в–¬в–¬в–¬ */
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -283,7 +293,7 @@ body {
   margin-bottom: 10px;
 }
 
-/* ▬▬▬▬▬ FILTERS ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ FILTERS в–¬в–¬в–¬в–¬в–¬ */
 .filters {
   display: flex;
   gap: 6px;
@@ -314,7 +324,7 @@ body {
 }
 .top-filters .filter { flex: 1; text-align: center; }
 
-/* ▬▬▬▬▬ ACTIVITY FEED ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ ACTIVITY FEED в–¬в–¬в–¬в–¬в–¬ */
 .activity-feed {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -381,7 +391,7 @@ body {
   padding: 8px 0;
 }
 
-/* ▬▬▬▬▬ TASKS ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ TASKS в–¬в–¬в–¬в–¬в–¬ */
 .tasks-list { display: flex; flex-direction: column; gap: 10px; }
 
 .task-card {
@@ -490,7 +500,7 @@ body {
 }
 .empty-state-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
 
-/* ▬▬▬▬▬ PROFILE ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ PROFILE в–¬в–¬в–¬в–¬в–¬ */
 .profile-header { text-align: center; padding: 24px 0 20px; }
 .avatar-wrap { position: relative; display: inline-block; }
 .avatar {
@@ -571,7 +581,7 @@ body {
   box-shadow: 0 0 12px var(--accent-glow);
 }
 
-/* ▬▬▬▬▬ SPARKLINE ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ SPARKLINE в–¬в–¬в–¬в–¬в–¬ */
 .sparkline-card { padding: 14px; }
 .sparkline-label {
   font-size: 11px;
@@ -596,7 +606,7 @@ body {
 }
 .spark-bar.zero { background: var(--bg-elevated); box-shadow: none; }
 
-/* ▬▬▬▬▬ STATS GRID ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ STATS GRID в–¬в–¬в–¬в–¬в–¬ */
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -624,7 +634,7 @@ body {
   letter-spacing: 1px;
 }
 
-/* ▬▬▬▬▬ STREAK CALENDAR ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ STREAK CALENDAR в–¬в–¬в–¬в–¬в–¬ */
 .streak-calendar {
   display: flex;
   justify-content: space-between;
@@ -650,7 +660,7 @@ body {
   font-weight: 800;
 }
 
-/* ▬▬▬▬▬ BONUS TIMER ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ BONUS TIMER в–¬в–¬в–¬в–¬в–¬ */
 .bonus-timer-card { padding: 14px; }
 .bonus-timer {
   display: flex;
@@ -666,7 +676,7 @@ body {
   font-size: 15px;
 }
 
-/* ▬▬▬▬▬ ACHIEVEMENT PREVIEW ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ ACHIEVEMENT PREVIEW в–¬в–¬в–¬в–¬в–¬ */
 .ach-preview {
   display: flex;
   gap: 8px;
@@ -690,7 +700,7 @@ body {
   box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
 }
 
-/* ▬▬▬▬▬ REFERRAL ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ REFERRAL в–¬в–¬в–¬в–¬в–¬ */
 .referral-card { text-align: center; padding: 20px; }
 .referral-label {
   font-size: 12px;
@@ -742,7 +752,7 @@ body {
   color: var(--accent);
 }
 
-/* ▬▬▬▬▬ ПОПОЛНЕНИЕ ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ РџРћРџРћР›РќР•РќРР• в–¬в–¬в–¬в–¬в–¬ */
 .btn-topup {
   width: 100%;
   padding: 16px;
@@ -785,7 +795,7 @@ body {
   color: var(--accent);
 }
 
-/* ▬▬▬▬▬ TOP ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ TOP в–¬в–¬в–¬в–¬в–¬ */
 .top-list {
   display: flex;
   flex-direction: column;
@@ -808,7 +818,7 @@ body {
   box-shadow: 0 0 16px rgba(0, 229, 255, 0.3);
 }
 .top-row.is-me::before {
-  content: 'ТЫ';
+  content: 'РўР«';
   position: absolute;
   top: 4px;
   right: 8px;
@@ -903,7 +913,7 @@ body {
   color: var(--accent);
 }
 
-/* ▬▬▬▬▬ CREATE FORM ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ CREATE FORM в–¬в–¬в–¬в–¬в–¬ */
 .create-header {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1002,7 +1012,7 @@ body {
   border: 1px solid rgba(0, 229, 255, 0.3);
 }
 
-/* ▬▬▬▬▬ MODALS ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ MODALS в–¬в–¬в–¬в–¬в–¬ */
 .modal {
   position: fixed;
   inset: 0;
@@ -1219,7 +1229,7 @@ body {
   font-size: 13px;
 }
 
-/* ▬▬▬▬▬ ROLE SELECT ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ ROLE SELECT в–¬в–¬в–¬в–¬в–¬ */
 .role-select {
   position: fixed;
   inset: 0;
@@ -1274,7 +1284,7 @@ body {
   opacity: 0.7;
 }
 
-/* ▬▬▬▬▬ ROLE MODAL ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ ROLE MODAL в–¬в–¬в–¬в–¬в–¬ */
 .role-modal-cards { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
 .role-modal-card {
   display: flex;
@@ -1307,7 +1317,7 @@ body {
   border-radius: 8px;
 }
 
-/* ▬▬▬▬▬ УВЕДОМЛЕНИЯ ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ РЈР’Р•Р”РћРњР›Р•РќРРЇ в–¬в–¬в–¬в–¬в–¬ */
 .notif-header-action {
   display: flex;
   justify-content: space-between;
@@ -1347,7 +1357,7 @@ body {
   font-size: 13px;
 }
 
-/* ▬▬▬▬▬ ОТЗЫВЫ И РЕЙТИНГ ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ РћРўР—Р«Р’Р« Р Р Р•Р™РўРРќР“ в–¬в–¬в–¬в–¬в–¬ */
 .review-item {
   border: 1px solid rgba(0, 255, 200, 0.2);
   border-radius: 10px;
@@ -1441,7 +1451,7 @@ body {
 .pending-task-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
 .pending-task-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 10px; }
 
-/* ▬▬▬▬▬ СПИСОК ЮЗЕРОВ ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ РЎРџРРЎРћРљ Р®Р—Р•Р РћР’ в–¬в–¬в–¬в–¬в–¬ */
 .user-row {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -1495,7 +1505,7 @@ body {
 .user-sub { font-size: 11px; color: var(--text-muted); }
 .user-action { color: var(--accent); font-size: 20px; padding: 4px; }
 
-/* ▬▬▬▬▬ ЧАТ ПО ЗАДАНИЮ ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ Р§РђРў РџРћ Р—РђР”РђРќРР® в–¬в–¬в–¬в–¬в–¬ */
 .chat-modal-content {
   display: flex !important;
   flex-direction: column;
@@ -1592,7 +1602,7 @@ body {
 }
 .chat-send:active { transform: scale(0.9); }
 
-/* ▬▬▬▬▬ ПРОФИЛЬ ИГРОКА (публичный) ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ РџР РћР¤РР›Р¬ РР“Р РћРљРђ (РїСѓР±Р»РёС‡РЅС‹Р№) в–¬в–¬в–¬в–¬в–¬ */
 .user-modal-content { padding-bottom: 20px !important; }
 
 .user-profile-header { text-align: center; padding: 8px 0 16px; }
@@ -1742,7 +1752,7 @@ body {
 .user-review-head { font-size: 13px; margin-bottom: 4px; }
 .user-review-head .review-stars { color: var(--warning); margin-right: 6px; }
 
-/* ▬▬▬▬▬ ПОИСК ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ РџРћРРЎРљ в–¬в–¬в–¬в–¬в–¬ */
 .search-chip {
   display: inline-block;
   padding: 5px 10px;
@@ -1761,7 +1771,7 @@ body {
   color: var(--accent);
 }
 
-/* ▬▬▬▬▬ АВАТАРКИ ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ РђР’РђРўРђР РљР в–¬в–¬в–¬в–¬в–¬ */
 .avatar img,
 .user-profile-avatar img,
 .user-avatar-sm img,
@@ -1773,7 +1783,7 @@ body {
   display: block;
 }
 
-/* Лента внизу — уменьшаем акцент */
+/* Р›РµРЅС‚Р° РІРЅРёР·Сѓ вЂ” СѓРјРµРЅСЊС€Р°РµРј Р°РєС†РµРЅС‚ */
 #tab-tasks .activity-feed {
   margin-top: 16px;
   margin-bottom: 0;
@@ -1789,7 +1799,7 @@ body {
   filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.5)) drop-shadow(0 0 20px rgba(255, 0, 170, 0.3));
 }
 
-/* ▬▬▬▬▬ ВЫВОД ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ Р’Р«Р’РћР” в–¬в–¬в–¬в–¬в–¬ */
 .btn-withdraw {
   width: 100%;
   padding: 16px;
@@ -1809,7 +1819,7 @@ body {
   box-shadow: 0 2px 12px rgba(0, 255, 136, 0.5);
 }
 
-/* ▬▬▬▬▬ ИСТОРИЯ ЗАДАНИЙ ▬▬▬▬▬ */
+/* в–¬в–¬в–¬в–¬в–¬ РРЎРўРћР РРЇ Р—РђР”РђРќРР™ в–¬в–¬в–¬в–¬в–¬ */
 .tasks-history-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1956,3 +1966,33 @@ body {
 }
 .withdraw-calc-row span { color: var(--text-muted); }
 .withdraw-calc-row strong { color: var(--text); }
+/* BUTTON STATES */
+button:disabled, button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* IMPROVED TRANSITIONS */
+button, a, [role=button] {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* MODAL IMPROVEMENTS */
+.modal {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.modal-backdrop {
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
