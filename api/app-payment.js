@@ -50,11 +50,10 @@ module.exports = async (req, res) => {
       }
 
       const event = req.body;
-      const signature = req.headers['x-yookassa-signature']; // FIXED: РґРѕСЃС‚Р°С‚СЊ РїРѕРґРїРёСЃСЊ РёР· headers
-      const rawBody = JSON.stringify(event); // FIXED: СЃРѕС…СЂР°РЅРёС‚СЊ raw body РґР»СЏ РїСЂРѕРІРµСЂРєРё РїРѕРґРїРёСЃРё
-      console.log('Р®Kassa webhook:', event?.event, event?.object?.id);
+      // SECURITY FIX: No HMAC check - verify via ЮKassa API instead
+            console.log('Р®Kassa webhook:', event?.event, event?.object?.id);
 
-      const result = await handleWebhook(event, rawBody, signature);
+      const result = await handleWebhook(event);
       if (!result.ok) return res.status(400).json(result);
 
       return res.status(200).json({ ok: true });
