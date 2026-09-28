@@ -1,17 +1,17 @@
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: список заданий для Mini App (с онлайн-статусами и рейтингом)
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+﻿// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+// API: СЃРїРёСЃРѕРє Р·Р°РґР°РЅРёР№ РґР»СЏ Mini App (СЃ РѕРЅР»Р°Р№РЅ-СЃС‚Р°С‚СѓСЃР°РјРё Рё СЂРµР№С‚РёРЅРіРѕРј)
+// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
 const { ONLINE_THRESHOLD_MIN } = require('../lib/presence');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
-  if (!botToken) throw new Error('BOT_TOKEN не задан');
+  if (!botToken) throw new Error('BOT_TOKEN РЅРµ Р·Р°РґР°РЅ');
 
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
-  if (!hash) throw new Error('hash отсутствует');
+  if (!hash) throw new Error('hash РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚');
   params.delete('hash');
 
   const dataCheckString = [...params.entries()]
@@ -22,13 +22,13 @@ const verifyInitData = (initData) => {
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calcHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
-  if (calcHash !== hash) throw new Error('Неверная подпись initData');
+  if (calcHash !== hash) throw new Error('РќРµРІРµСЂРЅР°СЏ РїРѕРґРїРёСЃСЊ initData');
 
   const authDate = parseInt(params.get('auth_date') || '0', 10);
-  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Данные устарели');
+  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Р”Р°РЅРЅС‹Рµ СѓСЃС‚Р°СЂРµР»Рё');
 
   const userJson = params.get('user');
-  if (!userJson) throw new Error('user не найден');
+  if (!userJson) throw new Error('user РЅРµ РЅР°Р№РґРµРЅ');
   return JSON.parse(userJson);
 };
 
@@ -39,7 +39,7 @@ module.exports = async (req, res) => {
 
   try {
     const { initData, filter = 'all' } = req.body;
-    if (!initData) return res.status(400).json({ ok: false, error: 'initData обязателен' });
+    if (!initData) return res.status(400).json({ ok: false, error: 'initData РѕР±СЏР·Р°С‚РµР»РµРЅ' });
 
     const tgUser = verifyInitData(initData);
     const chatId = String(tgUser.id);
@@ -48,10 +48,10 @@ module.exports = async (req, res) => {
       `SELECT id, role, "isBanned" FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
-    if (userRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
+    if (userRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ РЅРµ РїСЂРёРІСЏР·Р°РЅ' });
 
     const user = userRes.rows[0];
-    if (user.isBanned) return res.status(403).json({ ok: false, error: 'Аккаунт заблокирован' });
+    if (user.isBanned) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ' });
 
     let statusFilter = '';
     if (filter === 'open') statusFilter = `AND t.status = 'open'`;
@@ -108,7 +108,12 @@ module.exports = async (req, res) => {
       userId: user.id,
     });
   } catch (e) {
-    console.error('app-tasks error:', e);
+    // SECURITY: Log auth failures
+    if (e.message.includes('подпись') || e.message.includes('устарел')) {
+      console.warn(`[SECURITY] Auth error in app-tasks: ${e.message}`);
+    } else {
+      console.error('app-tasks error:', e);
+    }
     return res.status(401).json({ ok: false, error: e.message });
   }
 };

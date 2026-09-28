@@ -18,9 +18,17 @@ const verifyInitData = (initData) => {
     .join('\n');
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calcHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-  if (calcHash !== hash) throw new Error('Неверная подпись initData');
+  if (calcHash !== hash) {
+    const userId = JSON.parse(params.get('user') || '{}').id || 'unknown';
+    console.warn(`[SECURITY] Invalid signature in change-role - userId: ${userId}`);
+    throw new Error('Неверная подпись initData');
+  }
   const authDate = parseInt(params.get('auth_date') || '0', 10);
-  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Данные устарели');
+  if (Math.floor(Date.now() / 1000) - authDate > 86400) {
+    const userId = JSON.parse(params.get('user') || '{}').id || 'unknown';
+    console.warn(`[SECURITY] Expired auth in change-role - userId: ${userId}`);
+    throw new Error('Данные устарели');
+  }
   const userJson = params.get('user');
   if (!userJson) throw new Error('user не найден');
   return JSON.parse(userJson);

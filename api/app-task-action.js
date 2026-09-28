@@ -1,6 +1,6 @@
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: детали задания + действия (взять/отказаться/голосовать)
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+﻿// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+// API: РґРµС‚Р°Р»Рё Р·Р°РґР°РЅРёСЏ + РґРµР№СЃС‚РІРёСЏ (РІР·СЏС‚СЊ/РѕС‚РєР°Р·Р°С‚СЊСЃСЏ/РіРѕР»РѕСЃРѕРІР°С‚СЊ)
+// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
 const {
@@ -21,10 +21,10 @@ const { applyBoost } = require('../lib/shop');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
-  if (!botToken) throw new Error('BOT_TOKEN не задан');
+  if (!botToken) throw new Error('BOT_TOKEN РЅРµ Р·Р°РґР°РЅ');
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
-  if (!hash) throw new Error('hash отсутствует');
+  if (!hash) throw new Error('hash РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚');
   params.delete('hash');
   const dataCheckString = [...params.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -32,11 +32,11 @@ const verifyInitData = (initData) => {
     .join('\n');
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calcHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-  if (calcHash !== hash) throw new Error('Неверная подпись initData');
+  if (calcHash !== hash) throw new Error('РќРµРІРµСЂРЅР°СЏ РїРѕРґРїРёСЃСЊ initData');
   const authDate = parseInt(params.get('auth_date') || '0', 10);
-  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Данные устарели');
+  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Р”Р°РЅРЅС‹Рµ СѓСЃС‚Р°СЂРµР»Рё');
   const userJson = params.get('user');
-  if (!userJson) throw new Error('user не найден');
+  if (!userJson) throw new Error('user РЅРµ РЅР°Р№РґРµРЅ');
   return JSON.parse(userJson);
 };
 
@@ -100,7 +100,7 @@ module.exports = async (req, res) => {
 
   try {
     const { initData, action, taskId } = req.body;
-    if (!initData) return res.status(400).json({ ok: false, error: 'initData обязателен' });
+    if (!initData) return res.status(400).json({ ok: false, error: 'initData РѕР±СЏР·Р°С‚РµР»РµРЅ' });
 
     const tgUser = verifyInitData(initData);
     const chatId = String(tgUser.id);
@@ -109,20 +109,20 @@ module.exports = async (req, res) => {
       `SELECT id, name, role, "isBanned", "roleChosen" FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
-    if (userRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
+    if (userRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ РЅРµ РїСЂРёРІСЏР·Р°РЅ' });
     const user = userRes.rows[0];
-    if (user.isBanned) return res.status(403).json({ ok: false, error: 'Аккаунт заблокирован' });
+    if (user.isBanned) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ' });
 
     if (!action) {
       const detail = await getTaskDetail(taskId, user.id);
-      if (!detail) return res.status(404).json({ ok: false, error: 'Задание не найдено' });
+      if (!detail) return res.status(404).json({ ok: false, error: 'Р—Р°РґР°РЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' });
       return res.status(200).json({ ok: true, task: detail, userRole: user.role });
     }
 
-    // ═════════ ВЗЯТЬ ═════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Р’Р—РЇРўР¬ в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'take') {
-      if (!user.roleChosen) return res.status(400).json({ ok: false, error: 'Сначала выбери роль в боте' });
-      if (user.role !== 'player') return res.status(400).json({ ok: false, error: 'Только игроки могут брать задания' });
+      if (!user.roleChosen) return res.status(400).json({ ok: false, error: 'РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРё СЂРѕР»СЊ РІ Р±РѕС‚Рµ' });
+      if (user.role !== 'player') return res.status(400).json({ ok: false, error: 'РўРѕР»СЊРєРѕ РёРіСЂРѕРєРё РјРѕРіСѓС‚ Р±СЂР°С‚СЊ Р·Р°РґР°РЅРёСЏ' });
 
       const r = await query(
         `UPDATE "Task" SET status='taken', "playerId"=$1
@@ -130,7 +130,7 @@ module.exports = async (req, res) => {
          RETURNING *`,
         [user.id, taskId]
       );
-      if (r.rowCount === 0) return res.status(400).json({ ok: false, error: 'Задание уже взято' });
+      if (r.rowCount === 0) return res.status(400).json({ ok: false, error: 'Р—Р°РґР°РЅРёРµ СѓР¶Рµ РІР·СЏС‚Рѕ' });
 
       const t = r.rows[0];
 
@@ -143,10 +143,10 @@ module.exports = async (req, res) => {
       } catch (e) { console.error('after take:', e); }
 
       await notifyUser(t.creatorId, {
-        message: `🎯 Задание "${t.title}" взято игроком ${user.name}`,
-        pushText: `🎯 *Задание взято!*\n📌 ${t.title}\n👤 ${user.name}`,
+        message: `рџЋЇ Р—Р°РґР°РЅРёРµ "${t.title}" РІР·СЏС‚Рѕ РёРіСЂРѕРєРѕРј ${user.name}`,
+        pushText: `рџЋЇ *Р—Р°РґР°РЅРёРµ РІР·СЏС‚Рѕ!*\nрџ“Њ ${t.title}\nрџ‘¤ ${user.name}`,
         type: 'task',
-        icon: '🎯',
+        icon: 'рџЋЇ',
         linkType: 'task',
         linkId: t.id,
       });
@@ -155,7 +155,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, action: 'taken', task: detail });
     }
 
-    // ═════════ ОТКАЗАТЬСЯ ═════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ РћРўРљРђР—РђРўР¬РЎРЇ в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'abandon') {
       const r = await query(
         `UPDATE "Task" SET status='open', "playerId"=NULL
@@ -163,14 +163,14 @@ module.exports = async (req, res) => {
          RETURNING *`,
         [taskId, user.id]
       );
-      if (r.rowCount === 0) return res.status(400).json({ ok: false, error: 'Не удалось отказаться' });
+      if (r.rowCount === 0) return res.status(400).json({ ok: false, error: 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєР°Р·Р°С‚СЊСЃСЏ' });
 
       const t = r.rows[0];
       await notifyUser(t.creatorId, {
-        message: `↩️ Игрок отказался от задания «${t.title}»`,
-        pushText: `↩️ *Игрок отказался*\n📌 ${t.title}\n\n_Задание снова открыто._`,
+        message: `в†©пёЏ РРіСЂРѕРє РѕС‚РєР°Р·Р°Р»СЃСЏ РѕС‚ Р·Р°РґР°РЅРёСЏ В«${t.title}В»`,
+        pushText: `в†©пёЏ *РРіСЂРѕРє РѕС‚РєР°Р·Р°Р»СЃСЏ*\nрџ“Њ ${t.title}\n\n_Р—Р°РґР°РЅРёРµ СЃРЅРѕРІР° РѕС‚РєСЂС‹С‚Рѕ._`,
         type: 'task',
-        icon: '↩️',
+        icon: 'в†©пёЏ',
         linkType: 'task',
         linkId: t.id,
       });
@@ -179,16 +179,18 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, action: 'abandoned', task: detail });
     }
 
-    // ═════════ ГОЛОСОВАНИЕ ═════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Р“РћР›РћРЎРћР’РђРќРР• в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'vote_approve' || action === 'vote_reject') {
       const value = action === 'vote_approve' ? 'approve' : 'reject';
 
-      const ex = await query(
-        `SELECT id FROM "Vote" WHERE "taskId"=$1 AND "voterId"=$2`,
+      // РџР РћР’Р•Р РљРђ: СЋР·РµСЂ СѓР¶Рµ РіРѕР»РѕСЃРѕРІР°Р» (FIXED: РїСЂРѕРІРµСЂРєР° РёРґРµРјРїРѕС‚РµРЅС‚РЅРѕСЃС‚Рё)
+      const existingVote = await query(
+        `SELECT id, value FROM "Vote" WHERE "taskId"=$1 AND "voterId"=$2`,
         [taskId, user.id]
       );
-      if (ex.rows.length > 0) return res.status(400).json({ ok: false, error: 'Ты уже голосовал' });
+      if (existingVote.rows.length > 0) return res.status(400).json({ ok: false, error: 'РўС‹ СѓР¶Рµ РіРѕР»РѕСЃРѕРІР°Р»' });
 
+      // Р”РѕР±Р°РІРёС‚СЊ РіРѕР»РѕСЃ
       await query(
         `INSERT INTO "Vote" ("taskId","voterId",value,"createdAt") VALUES ($1,$2,$3,NOW())`,
         [taskId, user.id, value]
@@ -210,7 +212,7 @@ module.exports = async (req, res) => {
       const approve = vr.rows.find(x => x.value === 'approve')?.cnt || 0;
       const reject = vr.rows.find(x => x.value === 'reject')?.cnt || 0;
 
-      // ── 5+ 👍 → approved ──
+      // в”Ђв”Ђ 5+ рџ‘Ќ в†’ approved в”Ђв”Ђ
       if (approve >= 5) {
         const tr = await query(
           `UPDATE "Task" SET status='approved' WHERE id=$1 AND status='voting' RETURNING *`,
@@ -233,7 +235,7 @@ module.exports = async (req, res) => {
           await query(
             `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
              VALUES ($1,'reward',$2,'completed',$3,NOW())`,
-            [t.playerId, netAmount, `Выполнение "${t.title}" (комиссия ${commission} ₽)`]
+            [t.playerId, netAmount, `Р’С‹РїРѕР»РЅРµРЅРёРµ "${t.title}" (РєРѕРјРёСЃСЃРёСЏ ${commission} в‚Ѕ)`]
           );
           await recordPlatformEarning(t.id, t.playerId, t.creatorId, grossReward);
 
@@ -241,16 +243,16 @@ module.exports = async (req, res) => {
           await checkDailyQuests(t.playerId, 'task_completed', 1);
           const achsPlayer = await checkAchievements(t.playerId);
 
-          let m = `🎉 *Задание выполнено!*\n📌 ${t.title}\n💰 +${netAmount} ₽`;
-          if (commission > 0) m += `\n_Комиссия: -${commission} ₽_`;
-          if (mult > 1) m += `\n🔥 _Streak ×${mult}_`;
-          if (boost) m += `\n⚡ _${boost.name}_`;
+          let m = `рџЋ‰ *Р—Р°РґР°РЅРёРµ РІС‹РїРѕР»РЅРµРЅРѕ!*\nрџ“Њ ${t.title}\nрџ’° +${netAmount} в‚Ѕ`;
+          if (commission > 0) m += `\n_РљРѕРјРёСЃСЃРёСЏ: -${commission} в‚Ѕ_`;
+          if (mult > 1) m += `\nрџ”Ґ _Streak Г—${mult}_`;
+          if (boost) m += `\nвљЎ _${boost.name}_`;
 
           await notifyUser(t.playerId, {
-            message: `🎉 Задание "${t.title}" выполнено! +${netAmount} ₽`,
+            message: `рџЋ‰ Р—Р°РґР°РЅРёРµ "${t.title}" РІС‹РїРѕР»РЅРµРЅРѕ! +${netAmount} в‚Ѕ`,
             pushText: m,
             type: 'task',
-            icon: '🎉',
+            icon: 'рџЋ‰',
             linkType: 'task',
             linkId: t.id,
           });
@@ -262,17 +264,17 @@ module.exports = async (req, res) => {
           await notifyReferralEarnings(refEarnings, sendMessage);
 
           await notifyUser(t.creatorId, {
-            message: `✅ Задание "${t.title}" выполнено! Оставь отзыв игроку.`,
-            pushText: `✅ *Задание выполнено!*\n📌 ${t.title}\n\n_Оставь отзыв игроку — кнопка «⭐ Оставить отзыв» в профиле._`,
+            message: `вњ… Р—Р°РґР°РЅРёРµ "${t.title}" РІС‹РїРѕР»РЅРµРЅРѕ! РћСЃС‚Р°РІСЊ РѕС‚Р·С‹РІ РёРіСЂРѕРєСѓ.`,
+            pushText: `вњ… *Р—Р°РґР°РЅРёРµ РІС‹РїРѕР»РЅРµРЅРѕ!*\nрџ“Њ ${t.title}\n\n_РћСЃС‚Р°РІСЊ РѕС‚Р·С‹РІ РёРіСЂРѕРєСѓ вЂ” РєРЅРѕРїРєР° В«в­ђ РћСЃС‚Р°РІРёС‚СЊ РѕС‚Р·С‹РІВ» РІ РїСЂРѕС„РёР»Рµ._`,
             type: 'task',
-            icon: '✅',
+            icon: 'вњ…',
             linkType: 'task',
             linkId: t.id,
           });
         }
       }
 
-      // ── 5+ 👎 → rejected (НОВОЕ) ──
+      // в”Ђв”Ђ 5+ рџ‘Ћ в†’ rejected (РќРћР’РћР•) в”Ђв”Ђ
       if (reject >= 5) {
         const tr = await query(
           `UPDATE "Task" SET status='rejected' WHERE id=$1 AND status='voting' RETURNING *`,
@@ -282,10 +284,10 @@ module.exports = async (req, res) => {
           const t = tr.rows[0];
 
           await notifyUser(t.playerId, {
-            message: `❌ Задание "${t.title}" отклонено`,
-            pushText: `❌ *Задание отклонено*\n📌 ${t.title}\n\n_Зрители проголосовали против._`,
+            message: `вќЊ Р—Р°РґР°РЅРёРµ "${t.title}" РѕС‚РєР»РѕРЅРµРЅРѕ`,
+            pushText: `вќЊ *Р—Р°РґР°РЅРёРµ РѕС‚РєР»РѕРЅРµРЅРѕ*\nрџ“Њ ${t.title}\n\n_Р—СЂРёС‚РµР»Рё РїСЂРѕРіРѕР»РѕСЃРѕРІР°Р»Рё РїСЂРѕС‚РёРІ._`,
             type: 'task',
-            icon: '❌',
+            icon: 'вќЊ',
             linkType: 'task',
             linkId: t.id,
           });
@@ -294,14 +296,14 @@ module.exports = async (req, res) => {
           await query(
             `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
              VALUES ($1,'refund',$2,'completed',$3,NOW())`,
-            [t.creatorId, t.reward, `Возврат за "${t.title}" (отклонено)`]
+            [t.creatorId, t.reward, `Р’РѕР·РІСЂР°С‚ Р·Р° "${t.title}" (РѕС‚РєР»РѕРЅРµРЅРѕ)`]
           );
 
           await notifyUser(t.creatorId, {
-            message: `❌ Задание "${t.title}" отклонено. Возврат ${t.reward} ₽`,
-            pushText: `❌ *Задание отклонено*\n📌 ${t.title}\n\n💰 Возврат: *+${t.reward} ₽*`,
+            message: `вќЊ Р—Р°РґР°РЅРёРµ "${t.title}" РѕС‚РєР»РѕРЅРµРЅРѕ. Р’РѕР·РІСЂР°С‚ ${t.reward} в‚Ѕ`,
+            pushText: `вќЊ *Р—Р°РґР°РЅРёРµ РѕС‚РєР»РѕРЅРµРЅРѕ*\nрџ“Њ ${t.title}\n\nрџ’° Р’РѕР·РІСЂР°С‚: *+${t.reward} в‚Ѕ*`,
             type: 'task',
-            icon: '💰',
+            icon: 'рџ’°',
             linkType: 'task',
             linkId: t.id,
           });
@@ -312,9 +314,14 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, action: value, task: detail });
     }
 
-    return res.status(400).json({ ok: false, error: 'Неизвестное действие' });
+    return res.status(400).json({ ok: false, error: 'РќРµРёР·РІРµСЃС‚РЅРѕРµ РґРµР№СЃС‚РІРёРµ' });
   } catch (e) {
-    console.error('app-task-action error:', e);
+    // SECURITY: Log auth failures
+    if (e.message.includes('подпись') || e.message.includes('устарел')) {
+      console.warn(`[SECURITY] Auth error in app-task-action: ${e.message}`);
+    } else {
+      console.error('app-task-action error:', e);
+    }
     return res.status(500).json({ ok: false, error: e.message });
   }
 };

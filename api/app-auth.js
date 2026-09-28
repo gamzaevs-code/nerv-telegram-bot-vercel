@@ -30,12 +30,18 @@ const verifyInitData = (initData) => {
     .digest('hex');
 
   if (calculatedHash !== hash) {
+    // SECURITY: логировать попытку фальсификации подписи
+    const userId = JSON.parse(params.get('user') || '{}').id || 'unknown';
+    console.warn(`[SECURITY] Invalid initData signature - userId: ${userId}`);
     throw new Error('Неверная подпись initData');
   }
 
   const authDate = parseInt(params.get('auth_date') || '0', 10);
   const now = Math.floor(Date.now() / 1000);
   if (now - authDate > 86400) {
+    // SECURITY: логировать устаревшие данные авторизации
+    const userId = JSON.parse(params.get('user') || '{}').id || 'unknown';
+    console.warn(`[SECURITY] Expired auth data - userId: ${userId}, age: ${now - authDate}s`);
     throw new Error('Данные авторизации устарели');
   }
 

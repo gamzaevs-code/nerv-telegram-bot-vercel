@@ -1,16 +1,16 @@
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: расширенный профиль (метрики, спарклайн, достижения, рейтинг, ник)
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+﻿// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+// API: СЂР°СЃС€РёСЂРµРЅРЅС‹Р№ РїСЂРѕС„РёР»СЊ (РјРµС‚СЂРёРєРё, СЃРїР°СЂРєР»Р°Р№РЅ, РґРѕСЃС‚РёР¶РµРЅРёСЏ, СЂРµР№С‚РёРЅРі, РЅРёРє)
+// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
 const { pingPresence, getOnlineCount } = require('../lib/presence');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
-  if (!botToken) throw new Error('BOT_TOKEN не задан');
+  if (!botToken) throw new Error('BOT_TOKEN РЅРµ Р·Р°РґР°РЅ');
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
-  if (!hash) throw new Error('hash отсутствует');
+  if (!hash) throw new Error('hash РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚');
   params.delete('hash');
   const dataCheckString = [...params.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -18,11 +18,11 @@ const verifyInitData = (initData) => {
     .join('\n');
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calcHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-  if (calcHash !== hash) throw new Error('Неверная подпись initData');
+  if (calcHash !== hash) throw new Error('РќРµРІРµСЂРЅР°СЏ РїРѕРґРїРёСЃСЊ initData');
   const authDate = parseInt(params.get('auth_date') || '0', 10);
-  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Данные устарели');
+  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Р”Р°РЅРЅС‹Рµ СѓСЃС‚Р°СЂРµР»Рё');
   const userJson = params.get('user');
-  if (!userJson) throw new Error('user не найден');
+  if (!userJson) throw new Error('user РЅРµ РЅР°Р№РґРµРЅ');
   return JSON.parse(userJson);
 };
 
@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
 
   try {
     const { initData } = req.body;
-    if (!initData) return res.status(400).json({ ok: false, error: 'initData обязателен' });
+    if (!initData) return res.status(400).json({ ok: false, error: 'initData РѕР±СЏР·Р°С‚РµР»РµРЅ' });
 
     const tgUser = verifyInitData(initData);
     const chatId = String(tgUser.id);
@@ -45,21 +45,21 @@ module.exports = async (req, res) => {
        FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
-    if (userRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
+    if (userRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ РЅРµ РїСЂРёРІСЏР·Р°РЅ' });
     const user = userRes.rows[0];
 
-    // Пинг присутствия
+    // РџРёРЅРі РїСЂРёСЃСѓС‚СЃС‚РІРёСЏ
     await pingPresence(user.id);
     const onlineCount = await getOnlineCount();
 
-    // Место в рейтинге
+    // РњРµСЃС‚Рѕ РІ СЂРµР№С‚РёРЅРіРµ
     const rankRes = await query(
       `SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1`,
       [user.reputation]
     );
     const rank = rankRes.rows[0].pos;
 
-    // Достижения
+    // Р”РѕСЃС‚РёР¶РµРЅРёСЏ
     const achAll = await query(
       `SELECT a.id, a.name, a.icon, a.reward, ua."unlockedAt"
        FROM "Achievement" a
@@ -73,13 +73,13 @@ module.exports = async (req, res) => {
       unlocked: achUnlocked.length,
       total: achAll.rows.length,
       preview: achAll.rows.slice(0, 3).map(a => ({
-        icon: a.icon || '🏅',
+        icon: a.icon || 'рџЏ…',
         name: a.name,
         isUnlocked: a.unlockedAt !== null,
       })),
     };
 
-    // Значок
+    // Р—РЅР°С‡РѕРє
     const badgeRes = await query(
       `SELECT ci.name FROM "UserCosmetic" uc
        JOIN "CosmeticItem" ci ON ci.id = uc."itemId"
@@ -98,7 +98,7 @@ module.exports = async (req, res) => {
     );
     const isVip = vipRes.rows.length > 0;
 
-    // XP-прогресс
+    // XP-РїСЂРѕРіСЂРµСЃСЃ
     const level = user.level || 1;
     const exp = user.experience || 0;
     const expForNext = Math.pow(level, 2) * 50;
@@ -107,15 +107,17 @@ module.exports = async (req, res) => {
     const expNeeded = expForNext - expForCurrent;
     const expPercent = Math.min(Math.round((expProgress / expNeeded) * 100), 100);
 
-    // Инициалы
+    // РРЅРёС†РёР°Р»С‹
     const displayName = user.displayName || user.name || 'NERV';
     const initials = displayName.split(' ').slice(0, 2)
       .map(w => w[0] ? w[0].toUpperCase() : '').join('');
 
-    // Реф-код
+    // Р РµС„-РєРѕРґ
     let refCode = user.referralCode;
     if (!refCode) {
-      refCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      // Р“РµРЅРµСЂРёСЂРѕРІР°С‚СЊ РєСЂРёРїС‚РѕРіСЂР°С„РёС‡РµСЃРєРё Р±РµР·РѕРїР°СЃРЅС‹Р№ СЂРµС„РµСЂР°Р»СЊРЅС‹Р№ РєРѕРґ
+      const crypto = require('crypto');
+      refCode = crypto.randomBytes(4).toString('hex').toUpperCase();
       await query('UPDATE "User" SET "referralCode"=$1 WHERE id=$2', [refCode, user.id]);
     }
     const refCount = await query(
@@ -123,7 +125,7 @@ module.exports = async (req, res) => {
       [user.id]
     );
 
-    // Спарклайн активности (7 дней) — все действия
+    // РЎРїР°СЂРєР»Р°Р№РЅ Р°РєС‚РёРІРЅРѕСЃС‚Рё (7 РґРЅРµР№) вЂ” РІСЃРµ РґРµР№СЃС‚РІРёСЏ
     const sparkRes = await query(
       `SELECT DATE(d) AS d, COUNT(*)::int AS c FROM (
          SELECT "createdAt" AS d FROM "Transaction" WHERE "userId"=$1 AND "createdAt" >= NOW() - INTERVAL '7 days'
@@ -150,7 +152,7 @@ module.exports = async (req, res) => {
     }
     const sparkMax = Math.max(...sparkData, 1);
 
-    // Streak-календарь
+    // Streak-РєР°Р»РµРЅРґР°СЂСЊ
     const streakRes = await query(
       `SELECT DATE("createdAt") AS d
        FROM "Transaction"
@@ -167,12 +169,12 @@ module.exports = async (req, res) => {
       streakDays.push(streakRes.rows.some(r => String(r.d).startsWith(key)));
     }
 
-    // Таймер бонуса
+    // РўР°Р№РјРµСЂ Р±РѕРЅСѓСЃР°
     const lastBonus = user.lastDailyBonusAt ? new Date(user.lastDailyBonusAt) : null;
     const hoursSinceBonus = lastBonus ? (Date.now() - lastBonus.getTime()) / 3600000 : 24;
     const nextBonusHours = Math.max(0, 24 - hoursSinceBonus);
 
-    // Метрики
+    // РњРµС‚СЂРёРєРё
     const earnRes = await query(
       `SELECT COALESCE(SUM(amount),0)::int AS s FROM "Transaction"
        WHERE "userId"=$1 AND amount > 0`,
@@ -232,10 +234,10 @@ module.exports = async (req, res) => {
         sparkline: { data: sparkData, max: sparkMax },
         streakDays,
         nextBonusHours: Math.round(nextBonusHours * 10) / 10,
-        // ⭐ РЕЙТИНГ И ОТЗЫВЫ
+        // в­ђ Р Р•Р™РўРРќР“ Р РћРўР—Р«Р’Р«
         ratingAvg: Number(user.ratingAvg) || 0,
         ratingCount: user.ratingCount || 0,
-        // 🎭 НИК
+        // рџЋ­ РќРРљ
         nicknameUpdatedAt: user.nicknameUpdatedAt,
         metrics: {
           earned: earnRes.rows[0].s,
@@ -248,7 +250,12 @@ module.exports = async (req, res) => {
       },
     });
   } catch (e) {
-    console.error('app-profile error:', e);
+    // SECURITY: Log auth failures
+    if (e.message.includes('подпись') || e.message.includes('устарел')) {
+      console.warn(`[SECURITY] Auth error in app-profile: ${e.message}`);
+    } else {
+      console.error('app-profile error:', e);
+    }
     return res.status(401).json({ ok: false, error: e.message });
   }
 };

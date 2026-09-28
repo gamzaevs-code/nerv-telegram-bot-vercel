@@ -1,6 +1,6 @@
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: объединённый эндпоинт
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+﻿// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+// API: РѕР±СЉРµРґРёРЅС‘РЅРЅС‹Р№ СЌРЅРґРїРѕРёРЅС‚
+// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
 const { ONLINE_THRESHOLD_MIN } = require('../lib/presence');
@@ -14,31 +14,31 @@ const {
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
-  if (!botToken) throw new Error('BOT_TOKEN не задан');
+  if (!botToken) throw new Error('BOT_TOKEN РЅРµ Р·Р°РґР°РЅ');
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
-  if (!hash) throw new Error('hash отсутствует');
+  if (!hash) throw new Error('hash РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚');
   params.delete('hash');
   const dataCheckString = [...params.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`).join('\n');
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calcHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-  if (calcHash !== hash) throw new Error('Неверная подпись');
+  if (calcHash !== hash) throw new Error('РќРµРІРµСЂРЅР°СЏ РїРѕРґРїРёСЃСЊ');
   const authDate = parseInt(params.get('auth_date') || '0', 10);
-  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Устарело');
+  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('РЈСЃС‚Р°СЂРµР»Рѕ');
   return JSON.parse(params.get('user'));
 };
 
 const timeAgo = (date) => {
   const diff = Date.now() - new Date(date).getTime();
   const m = Math.floor(diff / 60000);
-  if (m < 1) return 'только что';
-  if (m < 60) return `${m} мин`;
+  if (m < 1) return 'С‚РѕР»СЊРєРѕ С‡С‚Рѕ';
+  if (m < 60) return `${m} РјРёРЅ`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} ч`;
+  if (h < 24) return `${h} С‡`;
   const d = Math.floor(h / 24);
-  return `${d} дн`;
+  return `${d} РґРЅ`;
 };
 
 const isOnline = (lastSeen) => {
@@ -47,7 +47,7 @@ const isOnline = (lastSeen) => {
 };
 
 module.exports = async (req, res) => {
-  // GET: редирект на аватарку
+  // GET: СЂРµРґРёСЂРµРєС‚ РЅР° Р°РІР°С‚Р°СЂРєСѓ
   if (req.method === 'GET' && req.query && req.query.action === 'avatar') {
     try {
       const userId = parseInt(req.query.userId, 10);
@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
 
   try {
     const { initData, action } = req.body;
-    if (!initData) return res.status(400).json({ ok: false, error: 'initData обязателен' });
+    if (!initData) return res.status(400).json({ ok: false, error: 'initData РѕР±СЏР·Р°С‚РµР»РµРЅ' });
 
     const tgUser = verifyInitData(initData);
     const chatId = String(tgUser.id);
@@ -82,11 +82,11 @@ module.exports = async (req, res) => {
       `SELECT id, balance, reputation, "displayName", name FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
-    if (meRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
+    if (meRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ РЅРµ РїСЂРёРІСЏР·Р°РЅ' });
     const user = meRes.rows[0];
     const myId = user.id;
 
-    // ═══════════ ACTIVITY ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ ACTIVITY в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (!action || action === 'activity') {
       const feed = [];
 
@@ -98,9 +98,9 @@ module.exports = async (req, res) => {
          ORDER BY t."createdAt" DESC LIMIT 5`
       );
       tasks.rows.forEach(t => feed.push({
-        icon: '📌', type: 'task',
-        text: `Задание «${t.title}»`,
-        meta: `${t.reward} ₽`,
+        icon: 'рџ“Њ', type: 'task',
+        text: `Р—Р°РґР°РЅРёРµ В«${t.title}В»`,
+        meta: `${t.reward} в‚Ѕ`,
         timeAgo: timeAgo(t.createdAt),
         createdAt: t.createdAt,
       }));
@@ -112,9 +112,9 @@ module.exports = async (req, res) => {
          ORDER BY t."updatedAt" DESC LIMIT 5`
       );
       approved.rows.forEach(t => feed.push({
-        icon: '✅', type: 'approved',
-        text: `${t.player} выполнил «${t.title}»`,
-        meta: `+${t.reward} ₽`,
+        icon: 'вњ…', type: 'approved',
+        text: `${t.player} РІС‹РїРѕР»РЅРёР» В«${t.title}В»`,
+        meta: `+${t.reward} в‚Ѕ`,
         timeAgo: timeAgo(t.updatedAt),
         createdAt: t.updatedAt,
       }));
@@ -128,8 +128,8 @@ module.exports = async (req, res) => {
          ORDER BY ua."unlockedAt" DESC LIMIT 3`
       );
       ach.rows.forEach(a => feed.push({
-        icon: a.icon || '🎖', type: 'achievement',
-        text: `${a.uname} открыл «${a.name}»`,
+        icon: a.icon || 'рџЋ–', type: 'achievement',
+        text: `${a.uname} РѕС‚РєСЂС‹Р» В«${a.name}В»`,
         meta: '',
         timeAgo: timeAgo(a.unlockedAt),
         createdAt: a.unlockedAt,
@@ -139,7 +139,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, feed: feed.slice(0, 15) });
     }
 
-    // ═══════════ NOTIFICATIONS ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ NOTIFICATIONS в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'notifications') {
       const r = await query(
         `SELECT id, message, "isRead", "createdAt"
@@ -172,7 +172,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
-    // ═══════════ REVIEWS ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ REVIEWS в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'reviews_top') {
       const top = await getTopRated(10);
       return res.status(200).json({ ok: true, top });
@@ -213,11 +213,11 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, review: result.review });
     }
 
-    // ═══════════ SEARCH USERS ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ SEARCH USERS в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'search_users') {
       const q = String(req.body.query || '').trim();
       if (q.length < 2) {
-        return res.status(400).json({ ok: false, error: 'Минимум 2 символа' });
+        return res.status(400).json({ ok: false, error: 'РњРёРЅРёРјСѓРј 2 СЃРёРјРІРѕР»Р°' });
       }
       const qLower = q.toLowerCase();
 
@@ -256,14 +256,14 @@ module.exports = async (req, res) => {
       });
     }
 
-    // ═══════════ USER TASKS HISTORY ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ USER TASKS HISTORY в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'user_tasks') {
       const targetId = parseInt(req.body.targetId, 10) || myId;
       const tab = String(req.body.tab || 'player');
 
       const uRes = await query(`SELECT id FROM "User" WHERE id = $1 AND "isBanned" = false`, [targetId]);
       if (uRes.rows.length === 0) {
-        return res.status(404).json({ ok: false, error: 'Юзер не найден' });
+        return res.status(404).json({ ok: false, error: 'Р®Р·РµСЂ РЅРµ РЅР°Р№РґРµРЅ' });
       }
 
       let tasks = [];
@@ -333,10 +333,10 @@ module.exports = async (req, res) => {
       });
     }
 
-    // ═══════════ PUBLIC PROFILE ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ PUBLIC PROFILE в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'user_profile') {
       const targetId = parseInt(req.body.targetId, 10);
-      if (!targetId) return res.status(400).json({ ok: false, error: 'targetId обязателен' });
+      if (!targetId) return res.status(400).json({ ok: false, error: 'targetId РѕР±СЏР·Р°С‚РµР»РµРЅ' });
 
       const r = await query(
         `SELECT u.id, u.name, COALESCE(u."displayName", u.name) AS display,
@@ -352,7 +352,7 @@ module.exports = async (req, res) => {
          WHERE u.id = $1 AND u."isBanned" = false`,
         [targetId]
       );
-      if (r.rows.length === 0) return res.status(404).json({ ok: false, error: 'Игрок не найден' });
+      if (r.rows.length === 0) return res.status(404).json({ ok: false, error: 'РРіСЂРѕРє РЅРµ РЅР°Р№РґРµРЅ' });
 
       const u = r.rows[0];
       const display = u.display || u.name || 'NERV';
@@ -412,14 +412,14 @@ module.exports = async (req, res) => {
             rating: rv.rating,
             comment: rv.comment,
             createdAt: rv.createdAt,
-            reviewerName: rv.reviewer_name || 'Аноним',
-            taskTitle: rv.task_title || '—',
+            reviewerName: rv.reviewer_name || 'РђРЅРѕРЅРёРј',
+            taskTitle: rv.task_title || 'вЂ”',
           })),
         },
       });
     }
 
-    // ═══════════ ONLINE ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ ONLINE в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'online') {
       const onlineRes = await query(
         `SELECT u.id, COALESCE(u."displayName", u.name) AS name, u.level, u.role, pres."lastSeen"
@@ -438,10 +438,10 @@ module.exports = async (req, res) => {
       });
     }
 
-    // ═══════════ FAVORITES ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ FAVORITES в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     if (action === 'favorites_toggle') {
       const targetId = parseInt(req.body.targetId, 10);
-      if (!targetId || targetId === myId) return res.status(400).json({ ok: false, error: 'Неверно' });
+      if (!targetId || targetId === myId) return res.status(400).json({ ok: false, error: 'РќРµРІРµСЂРЅРѕ' });
 
       const ex = await query(`SELECT id FROM "FavoriteUser" WHERE "userId"=$1 AND "targetId"=$2`, [myId, targetId]);
       if (ex.rows.length > 0) {
@@ -449,7 +449,7 @@ module.exports = async (req, res) => {
         return res.status(200).json({ ok: true, action: 'removed' });
       } else {
         const cnt = await query(`SELECT COUNT(*)::int AS c FROM "FavoriteUser" WHERE "userId"=$1`, [myId]);
-        if (cnt.rows[0].c >= 20) return res.status(400).json({ ok: false, error: 'Максимум 20' });
+        if (cnt.rows[0].c >= 20) return res.status(400).json({ ok: false, error: 'РњР°РєСЃРёРјСѓРј 20' });
         await query(`INSERT INTO "FavoriteUser" ("userId","targetId","createdAt") VALUES ($1,$2,NOW())`, [myId, targetId]);
         return res.status(200).json({ ok: true, action: 'added' });
       }
@@ -473,7 +473,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    // ═══════════ METRICS ═══════════
+    // в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ METRICS в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ
     const metric = req.body.metric;
 
     if (metric === 'balance') {
@@ -481,12 +481,12 @@ module.exports = async (req, res) => {
       const spent = await query(`SELECT COALESCE(SUM(amount),0)::int AS s FROM "Transaction" WHERE "userId"=$1 AND amount < 0`, [myId]);
       const refE = await query(`SELECT COALESCE(SUM(amount),0)::int AS s FROM "ReferralEarning" WHERE "userId"=$1`, [myId]);
       return res.status(200).json({
-        ok: true, metric: 'balance', title: '💰 Баланс',
+        ok: true, metric: 'balance', title: 'рџ’° Р‘Р°Р»Р°РЅСЃ',
         rows: [
-          { label: '💰 Сейчас', value: `${user.balance} ₽` },
-          { label: '📥 Всего заработано', value: `${earn.rows[0].s} ₽` },
-          { label: '📤 Всего потрачено', value: `${Math.abs(spent.rows[0].s)} ₽` },
-          { label: '💸 Реферальные', value: `${refE.rows[0].s} ₽` },
+          { label: 'рџ’° РЎРµР№С‡Р°СЃ', value: `${user.balance} в‚Ѕ` },
+          { label: 'рџ“Ґ Р’СЃРµРіРѕ Р·Р°СЂР°Р±РѕС‚Р°РЅРѕ', value: `${earn.rows[0].s} в‚Ѕ` },
+          { label: 'рџ“¤ Р’СЃРµРіРѕ РїРѕС‚СЂР°С‡РµРЅРѕ', value: `${Math.abs(spent.rows[0].s)} в‚Ѕ` },
+          { label: 'рџ’ё Р РµС„РµСЂР°Р»СЊРЅС‹Рµ', value: `${refE.rows[0].s} в‚Ѕ` },
         ],
       });
     }
@@ -495,11 +495,11 @@ module.exports = async (req, res) => {
       const votes = await query(`SELECT COUNT(*)::int AS c FROM "Vote" WHERE "voterId"=$1`, [myId]);
       const rankRes = await query(`SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1`, [user.reputation]);
       return res.status(200).json({
-        ok: true, metric: 'reputation', title: '⭐ Репутация',
+        ok: true, metric: 'reputation', title: 'в­ђ Р РµРїСѓС‚Р°С†РёСЏ',
         rows: [
-          { label: '⭐ Сейчас', value: user.reputation },
-          { label: '🗳 За голосования', value: votes.rows[0].c },
-          { label: '🏅 Место в топе', value: `#${rankRes.rows[0].pos}` },
+          { label: 'в­ђ РЎРµР№С‡Р°СЃ', value: user.reputation },
+          { label: 'рџ—і Р—Р° РіРѕР»РѕСЃРѕРІР°РЅРёСЏ', value: votes.rows[0].c },
+          { label: 'рџЏ… РњРµСЃС‚Рѕ РІ С‚РѕРїРµ', value: `#${rankRes.rows[0].pos}` },
         ],
       });
     }
@@ -511,7 +511,7 @@ module.exports = async (req, res) => {
       );
       const myRankRes = await query(`SELECT COUNT(*)::int + 1 AS pos FROM "User" WHERE reputation > $1`, [user.reputation]);
       return res.status(200).json({
-        ok: true, metric: 'rank', title: '🏅 Топ-10',
+        ok: true, metric: 'rank', title: 'рџЏ… РўРѕРї-10',
         myRank: myRankRes.rows[0].pos,
         top: top.rows.map((u, i) => ({ rank: i + 1, name: u.name, reputation: u.reputation, level: u.level || 1 })),
       });
@@ -529,7 +529,7 @@ module.exports = async (req, res) => {
         const key = date.toISOString().split('T')[0];
         days.push({ date: key, active: streakRes.rows.some(r => String(r.d).startsWith(key)) });
       }
-      return res.status(200).json({ ok: true, metric: 'streak', title: '🔥 Streak', days });
+      return res.status(200).json({ ok: true, metric: 'streak', title: 'рџ”Ґ Streak', days });
     }
 
     if (metric === 'achievements') {
@@ -541,17 +541,22 @@ module.exports = async (req, res) => {
         [myId]
       );
       return res.status(200).json({
-        ok: true, metric: 'achievements', title: '🎖 Достижения',
+        ok: true, metric: 'achievements', title: 'рџЋ– Р”РѕСЃС‚РёР¶РµРЅРёСЏ',
         achievements: all.rows.map(a => ({
-          name: a.name, icon: a.icon || '🏅', description: a.description,
+          name: a.name, icon: a.icon || 'рџЏ…', description: a.description,
           reward: a.reward, isUnlocked: a.unlockedAt !== null, unlockedAt: a.unlockedAt,
         })),
       });
     }
 
-    return res.status(400).json({ ok: false, error: 'Неизвестное действие' });
+    return res.status(400).json({ ok: false, error: 'РќРµРёР·РІРµСЃС‚РЅРѕРµ РґРµР№СЃС‚РІРёРµ' });
   } catch (e) {
-    console.error('app-data error:', e);
+    // SECURITY: Log auth failures
+    if (e.message.includes('подпись') || e.message.includes('устарел')) {
+      console.warn(`[SECURITY] Auth error in app-data: ${e.message}`);
+    } else {
+      console.error('app-data error:', e);
+    }
     return res.status(500).json({ ok: false, error: e.message });
   }
 };

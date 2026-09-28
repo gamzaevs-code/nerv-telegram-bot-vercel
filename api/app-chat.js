@@ -1,6 +1,6 @@
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: чат по заданию (история + отправка)
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+﻿// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+// API: С‡Р°С‚ РїРѕ Р·Р°РґР°РЅРёСЋ (РёСЃС‚РѕСЂРёСЏ + РѕС‚РїСЂР°РІРєР°)
+// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
 const {
@@ -13,19 +13,19 @@ const { notifyUser } = require('../lib/notify');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
-  if (!botToken) throw new Error('BOT_TOKEN не задан');
+  if (!botToken) throw new Error('BOT_TOKEN РЅРµ Р·Р°РґР°РЅ');
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
-  if (!hash) throw new Error('hash отсутствует');
+  if (!hash) throw new Error('hash РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚');
   params.delete('hash');
   const dataCheckString = [...params.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`).join('\n');
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calcHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-  if (calcHash !== hash) throw new Error('Неверная подпись');
+  if (calcHash !== hash) throw new Error('РќРµРІРµСЂРЅР°СЏ РїРѕРґРїРёСЃСЊ');
   const authDate = parseInt(params.get('auth_date') || '0', 10);
-  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Устарело');
+  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('РЈСЃС‚Р°СЂРµР»Рѕ');
   return JSON.parse(params.get('user'));
 };
 
@@ -34,7 +34,7 @@ module.exports = async (req, res) => {
 
   try {
     const { initData, action, taskId, message } = req.body;
-    if (!initData) return res.status(400).json({ ok: false, error: 'initData обязателен' });
+    if (!initData) return res.status(400).json({ ok: false, error: 'initData РѕР±СЏР·Р°С‚РµР»РµРЅ' });
 
     const tgUser = verifyInitData(initData);
     const chatId = String(tgUser.id);
@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
       `SELECT id, COALESCE("displayName", name) AS name FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
-    if (meRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
+    if (meRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ РЅРµ РїСЂРёРІСЏР·Р°РЅ' });
     const me = meRes.rows[0];
 
     if (action === 'list') {
@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'history') {
-      if (!taskId) return res.status(400).json({ ok: false, error: 'taskId обязателен' });
+      if (!taskId) return res.status(400).json({ ok: false, error: 'taskId РѕР±СЏР·Р°С‚РµР»РµРЅ' });
       const hist = await getChatHistory(taskId, me.id);
       if (!hist.ok) return res.status(400).json(hist);
       return res.status(200).json({ ok: true, messages: hist.messages });
@@ -71,26 +71,26 @@ module.exports = async (req, res) => {
 
     if (action === 'send') {
       if (!taskId || !message || !message.trim()) {
-        return res.status(400).json({ ok: false, error: 'Пустое сообщение' });
+        return res.status(400).json({ ok: false, error: 'РџСѓСЃС‚РѕРµ СЃРѕРѕР±С‰РµРЅРёРµ' });
       }
       const sent = await sendChatMessage(taskId, me.id, message);
       if (!sent.ok) return res.status(400).json(sent);
 
-      // 🔔 Push получателю через notifyUser
+      // рџ”” Push РїРѕР»СѓС‡Р°С‚РµР»СЋ С‡РµСЂРµР· notifyUser
       const parties = await getTaskParties(taskId);
       const toUserId = parties.creatorId === me.id ? parties.playerId : parties.creatorId;
 
       if (toUserId) {
         await notifyUser(toUserId, {
-          message: `💬 Новое сообщение по "${parties.title}" от ${me.name}`,
+          message: `рџ’¬ РќРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РїРѕ "${parties.title}" РѕС‚ ${me.name}`,
           pushText:
-            `💬 *Новое сообщение по заданию*\n\n` +
-            `📌 ${parties.title}\n` +
-            `👤 От: *${me.name}*\n\n` +
-            `_${message.slice(0, 300)}${message.length > 300 ? '…' : ''}_\n\n` +
-            `↩️ Ответить: /reply\\_task ${taskId} <текст>`,
+            `рџ’¬ *РќРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ РїРѕ Р·Р°РґР°РЅРёСЋ*\n\n` +
+            `рџ“Њ ${parties.title}\n` +
+            `рџ‘¤ РћС‚: *${me.name}*\n\n` +
+            `_${message.slice(0, 300)}${message.length > 300 ? 'вЂ¦' : ''}_\n\n` +
+            `в†©пёЏ РћС‚РІРµС‚РёС‚СЊ: /reply\\_task ${taskId} <С‚РµРєСЃС‚>`,
           type: 'chat',
-          icon: '💬',
+          icon: 'рџ’¬',
           linkType: 'task',
           linkId: taskId,
         });
@@ -104,9 +104,14 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, count: c });
     }
 
-    return res.status(400).json({ ok: false, error: 'Неизвестное действие' });
+    return res.status(400).json({ ok: false, error: 'РќРµРёР·РІРµСЃС‚РЅРѕРµ РґРµР№СЃС‚РІРёРµ' });
   } catch (e) {
-    console.error('app-chat error:', e);
+    // SECURITY: Log auth failures
+    if (e.message.includes('подпись') || e.message.includes('устарел')) {
+      console.warn(`[SECURITY] Auth error in app-chat: ${e.message}`);
+    } else {
+      console.error('app-chat error:', e);
+    }
     return res.status(401).json({ ok: false, error: e.message });
   }
 };

@@ -1,6 +1,6 @@
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
-// API: создание задания из Mini App
-// ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
+﻿// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+// API: СЃРѕР·РґР°РЅРёРµ Р·Р°РґР°РЅРёСЏ РёР· Mini App
+// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
 const crypto = require('crypto');
 const { query } = require('../lib/db');
 const { aiModerateContent, logModeration } = require('../lib/ai');
@@ -17,10 +17,10 @@ const { sendMessage } = require('../lib/telegram');
 
 const verifyInitData = (initData) => {
   const botToken = process.env.BOT_TOKEN;
-  if (!botToken) throw new Error('BOT_TOKEN не задан');
+  if (!botToken) throw new Error('BOT_TOKEN РЅРµ Р·Р°РґР°РЅ');
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
-  if (!hash) throw new Error('hash отсутствует');
+  if (!hash) throw new Error('hash РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚');
   params.delete('hash');
   const dataCheckString = [...params.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -28,11 +28,11 @@ const verifyInitData = (initData) => {
     .join('\n');
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calcHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-  if (calcHash !== hash) throw new Error('Неверная подпись initData');
+  if (calcHash !== hash) throw new Error('РќРµРІРµСЂРЅР°СЏ РїРѕРґРїРёСЃСЊ initData');
   const authDate = parseInt(params.get('auth_date') || '0', 10);
-  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Данные устарели');
+  if (Math.floor(Date.now() / 1000) - authDate > 86400) throw new Error('Р”Р°РЅРЅС‹Рµ СѓСЃС‚Р°СЂРµР»Рё');
   const userJson = params.get('user');
-  if (!userJson) throw new Error('user не найден');
+  if (!userJson) throw new Error('user РЅРµ РЅР°Р№РґРµРЅ');
   return JSON.parse(userJson);
 };
 
@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
 
   try {
     const { initData, title, description, reward } = req.body;
-    if (!initData) return res.status(400).json({ ok: false, error: 'initData обязателен' });
+    if (!initData) return res.status(400).json({ ok: false, error: 'initData РѕР±СЏР·Р°С‚РµР»РµРЅ' });
 
     const tgUser = verifyInitData(initData);
     const chatId = String(tgUser.id);
@@ -53,50 +53,50 @@ module.exports = async (req, res) => {
        FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
-    if (userRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'Аккаунт не привязан' });
+    if (userRes.rows.length === 0) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ РЅРµ РїСЂРёРІСЏР·Р°РЅ' });
     const user = userRes.rows[0];
-    if (user.isBanned) return res.status(403).json({ ok: false, error: 'Аккаунт заблокирован' });
+    if (user.isBanned) return res.status(403).json({ ok: false, error: 'РђРєРєР°СѓРЅС‚ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ' });
 
-    // Валидация
+    // Р’Р°Р»РёРґР°С†РёСЏ
     if (!title || title.trim().length < 3) {
-      return res.status(400).json({ ok: false, error: 'Название минимум 3 символа' });
+      return res.status(400).json({ ok: false, error: 'РќР°Р·РІР°РЅРёРµ РјРёРЅРёРјСѓРј 3 СЃРёРјРІРѕР»Р°' });
     }
     if (title.trim().length > 100) {
-      return res.status(400).json({ ok: false, error: 'Название максимум 100 символов' });
+      return res.status(400).json({ ok: false, error: 'РќР°Р·РІР°РЅРёРµ РјР°РєСЃРёРјСѓРј 100 СЃРёРјРІРѕР»РѕРІ' });
     }
     if (!description || description.trim().length < 5) {
-      return res.status(400).json({ ok: false, error: 'Описание минимум 5 символов' });
+      return res.status(400).json({ ok: false, error: 'РћРїРёСЃР°РЅРёРµ РјРёРЅРёРјСѓРј 5 СЃРёРјРІРѕР»РѕРІ' });
     }
     if (description.trim().length > 1000) {
-      return res.status(400).json({ ok: false, error: 'Описание максимум 1000 символов' });
+      return res.status(400).json({ ok: false, error: 'РћРїРёСЃР°РЅРёРµ РјР°РєСЃРёРјСѓРј 1000 СЃРёРјРІРѕР»РѕРІ' });
     }
 
     const rewardInt = parseInt(reward, 10);
     if (isNaN(rewardInt) || rewardInt < 10) {
-      return res.status(400).json({ ok: false, error: 'Минимальная награда 10 ₽' });
+      return res.status(400).json({ ok: false, error: 'РњРёРЅРёРјР°Р»СЊРЅР°СЏ РЅР°РіСЂР°РґР° 10 в‚Ѕ' });
     }
     if (rewardInt > 100000) {
-      return res.status(400).json({ ok: false, error: 'Максимум 100 000 ₽' });
+      return res.status(400).json({ ok: false, error: 'РњР°РєСЃРёРјСѓРј 100 000 в‚Ѕ' });
     }
 
     if (user.role !== 'viewer' && user.role !== 'admin') {
-      return res.status(403).json({ ok: false, error: 'Только зрители и админы могут создавать задания' });
+      return res.status(403).json({ ok: false, error: 'РўРѕР»СЊРєРѕ Р·СЂРёС‚РµР»Рё Рё Р°РґРјРёРЅС‹ РјРѕРіСѓС‚ СЃРѕР·РґР°РІР°С‚СЊ Р·Р°РґР°РЅРёСЏ' });
     }
     if (!user.roleChosen) {
-      return res.status(403).json({ ok: false, error: 'Сначала выбери роль в боте' });
+      return res.status(403).json({ ok: false, error: 'РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРё СЂРѕР»СЊ РІ Р±РѕС‚Рµ' });
     }
     if (user.balance < rewardInt) {
-      return res.status(400).json({ ok: false, error: `Недостаточно. Баланс: ${user.balance} ₽` });
+      return res.status(400).json({ ok: false, error: `РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ. Р‘Р°Р»Р°РЅСЃ: ${user.balance} в‚Ѕ` });
     }
 
-    // AI-модерация
+    // AI-РјРѕРґРµСЂР°С†РёСЏ
     const mod = await aiModerateContent(title.trim(), description.trim());
     if (!mod.ok) {
       await logModeration(user.id, null, 'task_text', `BLOCKED: ${mod.reason}`, 'REJECTED');
-      return res.status(400).json({ ok: false, error: `🚫 Отклонено модерацией: ${mod.reason}` });
+      return res.status(400).json({ ok: false, error: `рџљ« РћС‚РєР»РѕРЅРµРЅРѕ РјРѕРґРµСЂР°С†РёРµР№: ${mod.reason}` });
     }
 
-    // Создаём задание
+    // РЎРѕР·РґР°С‘Рј Р·Р°РґР°РЅРёРµ
     const tr = await query(
       `INSERT INTO "Task" (title, description, reward, status, "creatorId", "createdAt", "updatedAt")
        VALUES ($1, $2, $3, 'open', $4, NOW(), NOW()) RETURNING *`,
@@ -106,15 +106,15 @@ module.exports = async (req, res) => {
 
     await logModeration(user.id, t.id, 'task_text', `OK: ${mod.reason || 'approved'}`, 'APPROVED');
 
-    // Списываем с баланса
+    // РЎРїРёСЃС‹РІР°РµРј СЃ Р±Р°Р»Р°РЅСЃР°
     await query('UPDATE "User" SET balance = balance - $1 WHERE id=$2', [rewardInt, user.id]);
     await query(
       `INSERT INTO "Transaction" ("userId",type,amount,status,reason,"createdAt")
        VALUES ($1,'task_create',$2,'completed',$3,NOW())`,
-      [user.id, -rewardInt, `Создание "${t.title}"`]
+      [user.id, -rewardInt, `РЎРѕР·РґР°РЅРёРµ "${t.title}"`]
     );
 
-    // XP, квесты, ачивки
+    // XP, РєРІРµСЃС‚С‹, Р°С‡РёРІРєРё
     try {
       const xpRes = await addExperience(user.id, 10);
       await checkDailyQuests(user.id, 'task_created', 1);
@@ -123,12 +123,12 @@ module.exports = async (req, res) => {
       await notifyAchievements(user.id, achs, sendMessage);
     } catch (e) { console.error('after create:', e); }
 
-    // Автопостинг
+    // РђРІС‚РѕРїРѕСЃС‚РёРЅРі
     try {
       await postTaskToChannel(t.id, t.title, t.description, t.reward, user.displayName || user.name, sendMessage);
     } catch (e) { console.error('postTaskToChannel:', e); }
 
-    // Push-уведомления (500+)
+    // Push-СѓРІРµРґРѕРјР»РµРЅРёСЏ (500+)
     if (rewardInt >= 500) {
       try {
         await notifyNewTask(t.id, t.title, t.reward, user.displayName || user.name);
@@ -140,7 +140,12 @@ module.exports = async (req, res) => {
       task: { id: t.id, title: t.title, reward: t.reward },
     });
   } catch (e) {
-    console.error('app-create-task error:', e);
+    // SECURITY: Log auth failures separately
+    if (e.message.includes('подпись') || e.message.includes('устарел')) {
+      console.warn(`[SECURITY] Auth error in app-create-task: ${e.message}`);
+    } else {
+      console.error('app-create-task error:', e);
+    }
     return res.status(500).json({ ok: false, error: e.message });
   }
 };
