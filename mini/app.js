@@ -8,6 +8,7 @@ let currentTopCategory = 'reputation';
 let unreadCount = 0;
 let chatTaskId = null;
 let chatPollTimer = null;
+let chatType = 'private'; // 'private' или 'public'
 
 const safeNum = (v) => Number(v) || 0;
 const safeArr = (v) => Array.isArray(v) ? v : [];
@@ -592,6 +593,7 @@ const renderUserProfile = (p) => {
 // ═══ CHAT ═══
 const openChatModal = async (taskId) => {
   chatTaskId = taskId;
+  chatType = 'private'; // Reset to private when opening
   let modal = document.getElementById('chat-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -601,9 +603,20 @@ const openChatModal = async (taskId) => {
       <div class="modal-backdrop" id="chat-modal-backdrop"></div>
       <div class="modal-content chat-modal-content">
         <div class="modal-header">
-          <span class="modal-id">💬 ЧАТ</span>
+          <span class="modal-id">💬 ЧАТ ПО ЗАДАНИЮ</span>
           <button class="modal-close" id="chat-modal-close">✕</button>
         </div>
+        
+        <!-- CHAT TYPE TABS -->
+        <div class="chat-tabs">
+          <button class="chat-tab active" data-type="private" id="chat-tab-private">
+            🔒 Личный
+          </button>
+          <button class="chat-tab" data-type="public" id="chat-tab-public">
+            💬 Общий
+          </button>
+        </div>
+        
         <div class="chat-messages" id="chat-messages"></div>
         <div class="chat-input-wrap">
           <input type="text" id="chat-input" class="chat-input" placeholder="Сообщение..." maxlength="2000" autocomplete="off">
@@ -614,6 +627,17 @@ const openChatModal = async (taskId) => {
     document.body.appendChild(modal);
     document.getElementById('chat-modal-backdrop').addEventListener('click', closeChatModal);
     document.getElementById('chat-modal-close').addEventListener('click', closeChatModal);
+    
+    // Chat type switcher
+    const tabs = modal.querySelectorAll('.chat-tab');
+    tabs.forEach(tab => {
+      tab.addEventListener('click', async () => {
+        chatType = tab.dataset.type;
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        await loadChatHistory(chatTaskId);
+      });
+    });
   }
   const titleEl = modal.querySelector('.modal-id');
   if (titleEl) titleEl.textContent = `💬 ЧАТ ПО ЗАДАНИЮ #${taskId}`;
@@ -637,9 +661,11 @@ const loadChatHistory = async (taskId, silent = false) => {
   if (!msgEl) return;
   if (!silent) msgEl.innerHTML = '<div class="modal-loading">Загрузка...</div>';
   try {
+    // Choose action based on chat type
+    const action = chatType === 'public' ? 'public_history' : 'history';
     const res = await fetch('/api/app-chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, action: 'history', taskId }),
+      body: JSON.stringify({ initData, action, taskId }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
@@ -675,9 +701,11 @@ const sendChatMessage = async () => {
   input.value = '';
   tg?.HapticFeedback?.impactOccurred?.('light');
   try {
+    // Choose action based on chat type
+    const action = chatType === 'public' ? 'public_send' : 'send';
     const res = await fetch('/api/app-chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, action: 'send', taskId: chatTaskId, message: text }),
+      body: JSON.stringify({ initData, action, taskId: chatTaskId, message: text }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
