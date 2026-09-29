@@ -84,6 +84,10 @@ model User {
   Account                Account[]
   Session                Session[]
   ActivityLog            ActivityLog[]
+  adminLogs              AdminLog[]                @relation("AdminLogs")
+  reportsAsReporter      UserReport[]              @relation("ReportsAsReporter")
+  reportsAsReported      UserReport[]              @relation("ReportsAsReported")
+  mutes                  UserMute[]                @relation("UserMutes")
 
   @@index([role])
   @@index([referredBy])
@@ -848,4 +852,89 @@ model ActivityLog {
   @@index([userId])
   @@index([action])
   @@index([createdAt])
+}
+// Level 4: Analytics & Moderation
+
+model AdminLog {
+  id          Int       @id @default(autoincrement())
+  adminId     Int
+  action      String
+  targetId    Int?
+  targetType  String?
+  reason      String?
+  details     String?
+  createdAt   DateTime  @default(now())
+
+  admin       User      @relation("AdminLogs", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model SystemLog {
+  id          Int       @id @default(autoincrement())
+  level       String
+  message     String
+  context     String?
+  stackTrace  String?
+  createdAt   DateTime  @default(now())
+
+  @@index([level])
+  @@index([createdAt])
+}
+
+model ContentFilter {
+  id          Int       @id @default(autoincrement())
+  word        String    @unique
+  severity    String    @default("warning")
+  createdAt   DateTime  @default(now())
+}
+
+model UserReport {
+  id          Int       @id @default(autoincrement())
+  reporterId  Int
+  reportedId  Int
+  reason      String
+  description String?
+  status      String    @default("open")
+  decision    String?
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  reporter    User      @relation("ReportsAsReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported    User      @relation("ReportsAsReported", fields: [reportedId], references: [id], onDelete: Cascade)
+
+  @@index([reporterId])
+  @@index([reportedId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model UserMute {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  reason      String?
+  muteUntil   DateTime
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation("UserMutes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([muteUntil])
+}
+
+model DailyStats {
+  id              Int       @id @default(autoincrement())
+  date            DateTime  @unique
+  totalUsers      Int       @default(0)
+  activeUsers     Int       @default(0)
+  newUsers        Int       @default(0)
+  tasksCreated    Int       @default(0)
+  tasksCompleted  Int       @default(0)
+  totalRevenue    Int       @default(0)
+  messagesCount   Int       @default(0)
+  createdAt       DateTime  @default(now())
+
+  @@index([date])
 }
