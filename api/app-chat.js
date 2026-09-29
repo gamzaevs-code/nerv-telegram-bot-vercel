@@ -1,4 +1,4 @@
-﻿// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+// в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
 // API: С‡Р°С‚ РїРѕ Р·Р°РґР°РЅРёСЋ (РёСЃС‚РѕСЂРёСЏ + РѕС‚РїСЂР°РІРєР°)
 // в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
 const crypto = require('crypto');
@@ -9,6 +9,11 @@ const {
   getTaskParties,
   getTotalUnreadChats,
 } = require('../lib/chat');
+const {
+  getPublicChatHistory,
+  sendPublicChatMessage,
+  getTotalUnreadPublicChats,
+} = require('../lib/chat-public');
 const { notifyUser } = require('../lib/notify');
 
 const verifyInitData = (initData) => {
