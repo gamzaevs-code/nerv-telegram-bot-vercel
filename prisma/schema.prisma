@@ -35,6 +35,8 @@ model User {
   verificationToken   String?   @unique
   verificationTokenExpires DateTime?
   displayName         String?   // для отображения в соцфункциях
+  premiumPlan         String    @default("free")     // free, basic, premium, vip
+  premiumExpireAt     DateTime? // когда кончится премиум
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
