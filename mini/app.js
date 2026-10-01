@@ -556,6 +556,9 @@ const renderUserProfile = (p) => {
 
     <button class="btn-history" data-open-tasks-history="${p.id}">📋 История заданий</button>
     ${p.isMe ? '' : `
+      <button class="btn-message-user" id="user-msg-btn" data-user-id="${p.id}">
+        💬 Написать сообщение
+      </button>
       <button class="btn-favorite ${p.isFavorite ? 'active' : ''}" id="user-fav-btn">
         ${p.isFavorite ? '★ В избранном' : '☆ Добавить в избранное'}
       </button>
@@ -568,6 +571,17 @@ const renderUserProfile = (p) => {
   `;
 
   if (!p.isMe) {
+    // Message button
+    const msgBtn = document.getElementById('user-msg-btn');
+    if (msgBtn) {
+      msgBtn.addEventListener('click', () => {
+        tg?.HapticFeedback?.impactOccurred?.('light');
+        closeUserModal();
+        openUserMessageModal(p.id, p.displayName || p.name || 'Пользователь');
+      });
+    }
+
+    // Favorite button
     const favBtn = document.getElementById('user-fav-btn');
     if (favBtn) {
       favBtn.addEventListener('click', async () => {
@@ -1802,6 +1816,7 @@ document.addEventListener('click', (e) => {
 
   // chat send (global)
   if (e.target.id === 'chat-send') { sendChatMessage(); return; }
+  if (e.target.id === 'message-send') { sendUserMessage(); return; }
 
   // tabs
   const tab = e.target.closest('.tab');
@@ -1883,6 +1898,10 @@ document.addEventListener('keydown', (e) => {
   if (e.target.id === 'chat-input' && e.key === 'Enter') {
     e.preventDefault();
     sendChatMessage();
+  }
+  if (e.target.id === 'message-input' && e.key === 'Enter') {
+    e.preventDefault();
+    sendUserMessage();
   }
 });
 
@@ -2034,6 +2053,116 @@ const loadWithdrawHistory = async () => {
       </div>
     `).join('');
   } catch (e) { el.innerHTML = ''; }
+};
+
+// ═══ USER MESSAGES ═══
+let messageModalUserId = null;
+let messageModalUserName = null;
+
+const openUserMessageModal = async (userId, userName) => {
+  messageModalUserId = userId;
+  messageModalUserName = userName;
+  let modal = document.getElementById('message-modal');
+  
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'message-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = `
+      <div class="modal-backdrop" id="message-modal-backdrop"></div>
+      <div class="modal-content chat-modal-content">
+        <div class="modal-header">
+          <span class="modal-id">💬 Сообщение от @<span id="message-user-name"></span></span>
+          <button class="modal-close" id="message-modal-close">✕</button>
+        </div>
+        <div class="chat-messages" id="message-messages"></div>
+        <div class="chat-input-wrap">
+          <input type="text" id="message-input" class="chat-input" placeholder="Сообщение..." maxlength="2000" autocomplete="off">
+          <button class="chat-send" id="message-send">➤</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('message-modal-backdrop').addEventListener('click', closeUserMessageModal);
+    document.getElementById('message-modal-close').addEventListener('click', closeUserMessageModal);
+  }
+  
+  const nameEl = document.getElementById('message-user-name');
+  if (nameEl) nameEl.textContent = escapeHtml(userName);
+  
+  modal.classList.remove('hidden');
+  const msgEl = document.getElementById('message-messages');
+  if (msgEl) msgEl.innerHTML = '<div class="modal-loading">Загрузка...</div>';
+  
+  await loadUserMessages(userId);
+};
+
+const closeUserMessageModal = () => {
+  const m = document.getElementById('message-modal');
+  if (m) m.classList.add('hidden');
+  messageModalUserId = null;
+};
+
+const loadUserMessages = async (userId) => {
+  const msgEl = document.getElementById('message-messages');
+  if (!msgEl) return;
+  
+  try {
+    const res = await fetch('/api/app-messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'history', recipientId: userId, limit: 50 }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    renderUserMessages(safeArr(data.messages));
+  } catch (e) {
+    msgEl.innerHTML = `<div class="notif-empty">❌ ${escapeHtml(e.message)}</div>`;
+  }
+};
+
+const renderUserMessages = (messages) => {
+  const msgEl = document.getElementById('message-messages');
+  if (!msgEl) return;
+  
+  if (!messages.length) {
+    msgEl.innerHTML = '<div class="chat-empty">💬 Начни диалог первым</div>';
+    return;
+  }
+  
+  const wasAtBottom = msgEl.scrollTop + msgEl.clientHeight >= msgEl.scrollHeight - 30;
+  msgEl.innerHTML = messages.map(m => `
+    <div class="chat-msg ${m.isMine ? 'mine' : 'theirs'}">
+      ${!m.isMine ? `<div class="chat-msg-name">@${escapeHtml(m.fromName || 'nerv')}</div>` : ''}
+      <div class="chat-msg-text">${escapeHtml(m.text)}</div>
+      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</div>
+    </div>
+  `).join('');
+  
+  if (wasAtBottom) msgEl.scrollTop = msgEl.scrollHeight;
+};
+
+const sendUserMessage = async () => {
+  const input = document.getElementById('message-input');
+  if (!input || !messageModalUserId) return;
+  
+  const text = input.value.trim();
+  if (!text) return;
+  
+  input.value = '';
+  tg?.HapticFeedback?.impactOccurred?.('light');
+  
+  try {
+    const res = await fetch('/api/app-messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, action: 'send', recipientId: messageModalUserId, text }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    await loadUserMessages(messageModalUserId);
+  } catch (e) {
+    tg?.HapticFeedback?.notificationOccurred?.('error');
+    tg?.showAlert?.(`❌ ${e.message}`);
+  }
 };
 
 // ═══ TASKS HISTORY ═══
