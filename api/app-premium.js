@@ -1,4 +1,4 @@
-import { verifyTelegramWebApp } from '../lib/telegram-verify.js';
+﻿import { verifyTelegramWebApp } from '../lib/telegram-verify.js';
 import {
   PREMIUM_PLANS,
   getUserPremiumStatus,
@@ -31,12 +31,12 @@ export default async function handler(req, res) {
 
     const userId = userData.user.id;
 
-    // ═══ GET STATUS ═══
+    // в•ђв•ђв•ђ GET STATUS в•ђв•ђв•ђ
     if (action === 'status') {
       const status = await getUserPremiumStatus(userId);
       const tasksToday = await getTasksCreatedToday(userId);
-      const limit = 5; // FREE LIMIT
-      
+      const planInfo = PREMIUM_PLANS[status.currentPlan];
+      const limit = planInfo.tasksPerDay;
       return res.status(200).json({
         ok: true,
         status,
@@ -46,7 +46,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ═══ GET PLANS ═══
+    // в•ђв•ђв•ђ GET PLANS в•ђв•ђв•ђ
     if (action === 'plans') {
       return res.status(200).json({
         ok: true,
@@ -54,7 +54,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ═══ CHECK TASKS LIMIT ═══
+    // в•ђв•ђв•ђ CHECK TASKS LIMIT в•ђв•ђв•ђ
     if (action === 'check_tasks_limit') {
       const tasksToday = await getTasksCreatedToday(userId);
       const status = await getUserPremiumStatus(userId);
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ═══ GET COMMISSION ═══
+    // в•ђв•ђв•ђ GET COMMISSION в•ђв•ђв•ђ
     if (action === 'get_commission') {
       const status = await getUserPremiumStatus(userId);
       const commission = PREMIUM_PLANS[status.currentPlan].commissionPercent;
@@ -82,9 +82,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // ═══ ACTIVATE (THIS WOULD BE CALLED FROM PAYMENT HANDLER) ═══
+    // в•ђв•ђв•ђ ACTIVATE (THIS WOULD BE CALLED FROM PAYMENT HANDLER) в•ђв•ђв•ђ
     if (action === 'activate') {
-      // В реальной системе эндпоинт будет вызван из обработчика платежа
+      // Р’ СЂРµР°Р»СЊРЅРѕР№ СЃРёСЃС‚РµРјРµ СЌРЅРґРїРѕРёРЅС‚ Р±СѓРґРµС‚ РІС‹Р·РІР°РЅ РёР· РѕР±СЂР°Р±РѕС‚С‡РёРєР° РїР»Р°С‚РµР¶Р°
       const { plan = 'basic', days = 30 } = req.body;
 
       if (!PREMIUM_PLANS[plan]) {
@@ -96,24 +96,24 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         ok: true,
-        message: `Активирована подписка ${plan}`,
+        message: `РђРєС‚РёРІРёСЂРѕРІР°РЅР° РїРѕРґРїРёСЃРєР° ${plan}`,
         status,
       });
     }
 
-    // ═══ CANCEL ═══
+    // в•ђв•ђв•ђ CANCEL в•ђв•ђв•ђ
     if (action === 'cancel') {
       await cancelPremium(userId);
 
       return res.status(200).json({
         ok: true,
-        message: 'Подписка отменена',
+        message: 'РџРѕРґРїРёСЃРєР° РѕС‚РјРµРЅРµРЅР°',
       });
     }
 
-    // ═══ GET STATS (ADMIN ONLY) ═══
+    // в•ђв•ђв•ђ GET STATS (ADMIN ONLY) в•ђв•ђв•ђ
     if (action === 'stats') {
-      // TODO: Проверить что пользователь админ
+      // TODO: РџСЂРѕРІРµСЂРёС‚СЊ С‡С‚Рѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ Р°РґРјРёРЅ
       const stats = await getPremiumStats();
 
       return res.status(200).json({

@@ -1,4 +1,4 @@
-/* в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
+﻿/* в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬
    NERV MINI APP вЂ” РљРР‘Р•Р РџРђРќРљ-РЎРўРР›Р¬
    в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬в–¬ */
 
@@ -269,6 +269,15 @@ body {
 .card.clickable { cursor: pointer; transition: transform 0.15s ease; }
 .card.clickable:active { transform: scale(0.98); }
 .card.clickable:hover { border-color: var(--accent); }
+
+.premium-card {
+  border-left: 3px solid var(--warning);
+}
+
+.premium-card.active {
+  border-left-color: var(--accent-secondary);
+  box-shadow: 0 0 15px rgba(255, 0, 170, 0.3);
+}
 
 .card-row-header {
   display: flex;

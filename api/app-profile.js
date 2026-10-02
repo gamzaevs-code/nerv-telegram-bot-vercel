@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
               level, experience, "loginStreak", "isModerator",
               "referralCode", "createdAt", "roleChosen",
               "lastDailyBonusAt", avatar, bio,
-              "ratingAvg", "ratingCount", "nicknameUpdatedAt"
+              "ratingAvg", "ratingCount", "nicknameUpdatedAt", "premiumPlan", "premiumExpireAt"
        FROM "User" WHERE "telegramChatId" = $1`,
       [chatId]
     );
@@ -238,6 +238,8 @@ module.exports = async (req, res) => {
         ratingAvg: Number(user.ratingAvg) || 0,
         ratingCount: user.ratingCount || 0,
         // рџЋ­ РќРРљ
+        premiumPlan: user.premiumPlan || 'free',
+        premiumExpireAt: user.premiumExpireAt,
         nicknameUpdatedAt: user.nicknameUpdatedAt,
         metrics: {
           earned: earnRes.rows[0].s,
